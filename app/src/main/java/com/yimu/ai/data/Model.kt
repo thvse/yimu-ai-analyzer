@@ -1,0 +1,52 @@
+package com.yimu.ai.data
+
+data class BillItem(
+    val id: Long,
+    val cost: Double,
+    val billType: Int, // 0: 支出, 1: 收入, 2: 转账
+    val time: String, // 记账时间字符串，例如 "2024-05-01 12:30:00"
+    val remark: String?,
+    val parentCategoryId: Long,
+    val parentCategoryName: String,
+    val childCategoryId: Long,
+    val childCategoryName: String,
+    val assetId: Long,
+    val assetName: String
+) {
+    val isExpense: Boolean get() = billType == 0
+    val isIncome: Boolean get() = billType == 1
+}
+
+data class CategoryItem(
+    val id: Long,
+    val name: String,
+    val type: Int, // 0: 支出, 1: 收入
+    val parentId: Long = 0
+)
+
+data class AssetItem(
+    val id: Long,
+    val name: String,
+    val balance: Double
+)
+
+data class SpendingSummary(
+    val totalExpense: Double,
+    val totalIncome: Double,
+    val balance: Double,
+    val billCount: Int,
+    val categoryRanking: List<CategoryExpense>
+)
+
+data class CategoryExpense(
+    val categoryName: String,
+    val amount: Double,
+    val percentage: Float
+)
+
+data class ChatMessage(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val text: String,
+    val isUser: Boolean,
+    val timestamp: Long = System.currentTimeMillis()
+)

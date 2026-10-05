@@ -1,0 +1,220 @@
+package com.yimu.ai.data
+
+import android.database.sqlite.SQLiteDatabase
+import java.io.File
+
+class YimuDbReader(private val dbFile: File) {
+
+    private fun openDb(): SQLiteDatabase {
+        if (!dbFile.exists()) {
+            throw IllegalStateException("数据库文件不存在: ${dbFile.absolutePath}")
+        }
+        return SQLiteDatabase.openDatabase(
+            dbFile.absolutePath,
+            null,
+            SQLiteDatabase.OPEN_READWRITE
+        )
+    }
+
+    /**
+     * 获取所有一级分类字典
+     */
+    fun getParentCategories(): Map<Long, String> {
+        val db = openDb()
+        val result = mutableMapOf<Long, String>()
+        try {
+            val cursor = db.rawQuery("SELECT categoryId, categoryName FROM parentcategory", null)
+            val idIdx = cursor.getColumnIndex("categoryId")
+            val nameIdx = cursor.getColumnIndex("categoryName")
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idIdx)
+                val name = cursor.getString(nameIdx)
+                result[id] = name
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            db.close()
+        }
+        return result
+    }
+
+    /**
+     * 获取所有二级分类字典
+     */
+    fun getChildCategories(): Map<Long, String> {
+        val db = openDb()
+        val result = mutableMapOf<Long, String>()
+        try {
+            val cursor = db.rawQuery("SELECT categoryId, categoryName FROM childcategory", null)
+            val idIdx = cursor.getColumnIndex("categoryId")
+            val nameIdx = cursor.getColumnIndex("categoryName")
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idIdx)
+                val name = cursor.getString(nameIdx)
+                result[id] = name
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            db.close()
+        }
+        return result
+    }
+
+    /**
+     * 获取所有账户/资产字典
+     */
+    fun getAssets(): Map<Long, String> {
+        val db = openDb()
+        val result = mutableMapOf<Long, String>()
+        try {
+            val cursor = db.rawQuery("SELECT assetId, assetName FROM asset", null)
+            val idIdx = cursor.getColumnIndex("assetId")
+            val nameIdx = cursor.getColumnIndex("assetName")
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idIdx)
+                val name = cursor.getString(nameIdx)
+                result[id] = name
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            db.close()
+        }
+        return result
+    }
+
+    /**
+     * 分页查询账单明细
+     */
+    fun getBills(limit: Int = 50, offset: Int = 0, yearMonth: String? = null): List<BillItem> {
+        val db = openDb()
+        val parentCats = getParentCategories()
+        val childCats = getChildCategories()
+        val assets = getAssets()
+        val list = mutableListOf<BillItem>()
+
+        try {
+            val whereClause = if (!yearMonth.isNullOrBlank()) "WHERE time LIKE '$yearMonth%'" else ""
+            val query = """
+                SELECT id, cost, billType, time, remark, parentCategoryId, childCategoryId, assetId
+                FROM bill
+                $whereClause
+                ORDER BY time DESC, id DESC
+                LIMIT $limit OFFSET $offset
+            """.trimIndent()
+
+            val cursor = db.rawQuery(query, null)
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow("id"))
+                val cost = cursor.getDouble(cursor.getColumnIndexOrThrow("cost"))
+                val billType = cursor.getInt(cursor.getColumnIndexOrThrow("billType"))
+                val time = cursor.getString(cursor.getColumnIndexOrThrow("time"))
+                val remark = cursor.getString(cursor.getColumnIndexOrThrow("remark"))
+                val parentId = cursor.getLong(cursor.getColumnIndexOrThrow("parentCategoryId"))
+                val childId = cursor.getLong(cursor.getColumnIndexOrThrow("childCategoryId"))
+                val assetId = cursor.getLong(cursor.getColumnIndexOrThrow("assetId"))
+
+                list.add(
+                    BillItem(
+                        id = id,
+                        cost = cost,
+                        billType = billType,
+                        time = time ?: "",
+                        remark = remark,
+                        parentCategoryId = parentId,
+                        parentCategoryName = parentCats[parentId] ?: "默认",
+                        childCategoryId = childId,
+                        childCategoryName = childCats[childId] ?: "其他",
+                        assetId = assetId,
+                        assetName = assets[assetId] ?: "账户"
+                    )
+                )
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            db.close()
+        }
+        return list
+    }
+
+    /**
+     * 计算月份统计概要（总支出、总收入、结余、分类排名）
+     */
+    fun getMonthlySummary(yearMonth: String? = null): SpendingSummary {
+        val db = openDb()
+        val parentCats = getParentCategories()
+        var totalExpense = 0.0
+        var totalIncome = 0.0
+        var count = 0
+        val categoryMap = mutableMapOf<String, Double>()
+
+        try {
+            val whereClause = if (!yearMonth.isNullOrBlank()) "WHERE time LIKE '$yearMonth%'" else ""
+            val query = "SELECT cost, billType, parentCategoryId FROM bill $whereClause"
+            val cursor = db.rawQuery(query, null)
+            val costIdx = cursor.getColumnIndexOrThrow("cost")
+            val typeIdx = cursor.getColumnIndexOrThrow("billType")
+            val pCatIdx = cursor.getColumnIndexOrThrow("parentCategoryId")
+
+            while (cursor.moveToNext()) {
+                val cost = cursor.getDouble(costIdx)
+                val type = cursor.getInt(typeIdx)
+                val pId = cursor.getLong(pCatIdx)
+                val catName = parentCats[pId] ?: "其他"
+
+                count++
+                if (type == 0) { // 支出
+                    totalExpense += cost
+                    categoryMap[catName] = (categoryMap[catName] ?: 0.0) + cost
+                } else if (type == 1) { // 收入
+                    totalIncome += cost
+                }
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            db.close()
+        }
+
+        // 计算分类百分比排序
+        val rankings = categoryMap.entries
+            .sortedByDescending { it.value }
+            .map { (name, amount) ->
+                val pct = if (totalExpense > 0) (amount / totalExpense).toFloat() else 0f
+                CategoryExpense(categoryName = name, amount = amount, percentage = pct)
+            }
+
+        return SpendingSummary(
+            totalExpense = totalExpense,
+            totalIncome = totalIncome,
+            balance = totalIncome - totalExpense,
+            billCount = count,
+            categoryRanking = rankings
+        )
+    }
+
+    /**
+     * 更新指定账单的一级/二级分类
+     */
+    fun updateBillCategory(billId: Long, parentCategoryId: Long, childCategoryId: Long): Boolean {
+        val db = openDb()
+        return try {
+            val sql = "UPDATE bill SET parentCategoryId = ?, childCategoryId = ? WHERE id = ?"
+            db.execSQL(sql, arrayOf(parentCategoryId, childCategoryId, billId))
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        } finally {
+            db.close()
+        }
+    }
+}
