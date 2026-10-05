@@ -43,17 +43,17 @@ jobs:
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.1.0
-          name: "一木AI账本助手 v1.1.0 (支持 MiMo 多模态与语音交互)"
+          tag_name: v1.2.0
+          name: "一木AI账本助手 v1.2.0 (锁定永久固定签名)"
           body: |
-            ### 📱 一木AI账本助手 v1.1.0 更新日志
-            - 🌟 **全面支持小米 MiMo (Mi-Model) 全模态大模型**（预设 endpoint 及 mimo-v2.6-flash / mimo-v2.6-pro）
-            - 📸 **图片/小票沟通**：点击相册图标即可发送购物小票、消费凭证、账单截图给 MiMo 视觉识别并推荐记账分类
-            - 🎙️ **语音输入沟通**：点击麦克风图标，直接说话转文字输入（适配小米小爱语音及各大手机原生语音输入法）
-            - 🔊 **语音播报朗读 (TTS)**：AI 回复支持点击朗读/停止，并在设置中支持开启“自动语音朗读”
-            - 🔐 **一木记账无感解密**：WinZip AES-256 算法本地解密 Custom.db，保护隐私
+            ### 📱 一木AI账本助手 v1.2.0 (永久签名锁定版)
+            - 🔑 **锁定永久签名**：内置项目固定签名证书，后续所有更新均保持同一签名，永不冲突！
+            - 🌟 **小米 MiMo 全模态大模型**：一键预设接入，支持 mimo-v2.6 全模态
+            - 📸 **图片/小票视觉沟通**：相册选图自动识别金额与一木记账分类
+            - 🎙️ **语音输入与播报**：支持麦克风语音转文字 (STT) 及 AI 回复自动语音朗读 (TTS)
+            - 🔐 **一木记账本地解密**：WinZip AES-256 安全解析 Custom.db
             
-            **直接点击下方 Assets 中的 `app-debug.apk` 即可下载安装到手机。**
+            ⚠️ **注意**：因前期未锁定签名导致旧版每次编译签名不同，安装此版本前请先卸载旧版。从本版本（v1.2.0）开始，后续所有版本均可直接无缝覆盖更新！
           files: app/build/outputs/apk/debug/app-debug.apk
           draft: false
           prerelease: false
