@@ -8,6 +8,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,15 +27,19 @@ fun SettingsScreen(
     userId: String,
     apiKey: String,
     apiUrl: String,
+    modelName: String,
+    autoVoice: Boolean,
     latestBackupFileName: String?,
     statusMessage: String?,
     isProcessing: Boolean,
-    onSaveSettings: (userId: String, apiKey: String, apiUrl: String) -> Unit,
+    onSaveSettings: (userId: String, apiKey: String, apiUrl: String, modelName: String, autoVoice: Boolean) -> Unit,
     onTriggerDecrypt: () -> Unit
 ) {
     var inputUserId by remember(userId) { mutableStateOf(userId) }
     var inputApiKey by remember(apiKey) { mutableStateOf(apiKey) }
     var inputApiUrl by remember(apiUrl) { mutableStateOf(apiUrl) }
+    var inputModelName by remember(modelName) { mutableStateOf(modelName) }
+    var inputAutoVoice by remember(autoVoice) { mutableStateOf(autoVoice) }
 
     Scaffold(
         topBar = {
@@ -103,7 +108,7 @@ fun SettingsScreen(
 
                     Button(
                         onClick = {
-                            onSaveSettings(inputUserId, inputApiKey, inputApiUrl)
+                            onSaveSettings(inputUserId, inputApiKey, inputApiUrl, inputModelName, inputAutoVoice)
                             onTriggerDecrypt()
                         },
                         enabled = inputUserId.isNotBlank() && !isProcessing,
@@ -126,7 +131,7 @@ fun SettingsScreen(
                 }
             }
 
-            // AI 大模型 API 配置卡片
+            // AI 大模型 API 配置卡片 (支持 MiMo / DeepSeek / OpenAI 等)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -136,7 +141,53 @@ fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Key, contentDescription = null, tint = BrandPrimary)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("AI 大模型配置", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("AI 大模型配置 (支持 MiMo/多模态)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("快速预设推荐：", fontSize = 13.sp, color = TextSecondary)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // 预设选择按钮
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                inputApiUrl = "https://api.xiaomimimo.com/v1/chat/completions"
+                                inputModelName = "mimo-v2.6-flash"
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                        ) {
+                            Text("小米 MiMo", fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                inputApiUrl = "https://api.deepseek.com/chat/completions"
+                                inputModelName = "deepseek-chat"
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                        ) {
+                            Text("DeepSeek", fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                inputApiUrl = "https://api.openai.com/v1/chat/completions"
+                                inputModelName = "gpt-4o"
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                        ) {
+                            Text("OpenAI", fontSize = 12.sp)
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -144,8 +195,8 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = inputApiKey,
                         onValueChange = { inputApiKey = it },
-                        label = { Text("API Key (DeepSeek / OpenAI)") },
-                        placeholder = { Text("sk-...") },
+                        label = { Text("API Key (如小米 MiMo Token / DeepSeek Key)") },
+                        placeholder = { Text("例如：sk-...") },
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
@@ -157,8 +208,20 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = inputApiUrl,
                         onValueChange = { inputApiUrl = it },
-                        label = { Text("API 端点地址 (默认 DeepSeek)") },
-                        placeholder = { Text("https://api.deepseek.com/chat/completions") },
+                        label = { Text("API 端点地址 (Base URL)") },
+                        placeholder = { Text("https://api.xiaomimimo.com/v1/chat/completions") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = inputModelName,
+                        onValueChange = { inputModelName = it },
+                        label = { Text("模型名称 (如 mimo-v2.6-flash, mimo-v2.6-pro)") },
+                        placeholder = { Text("mimo-v2.6-flash") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         singleLine = true
@@ -168,13 +231,47 @@ fun SettingsScreen(
 
                     Button(
                         onClick = {
-                            onSaveSettings(inputUserId, inputApiKey, inputApiUrl)
+                            onSaveSettings(inputUserId, inputApiKey, inputApiUrl, inputModelName, inputAutoVoice)
                         },
                         modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("保存配置")
+                        Text("保存大模型配置")
                     }
+                }
+            }
+
+            // 语音互动卡片
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = BrandPrimary)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text("AI 回复自动语音朗读", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text("接收到回复后通过系统语音引擎朗读", fontSize = 12.sp, color = TextSecondary)
+                        }
+                    }
+
+                    Switch(
+                        checked = inputAutoVoice,
+                        onCheckedChange = {
+                            inputAutoVoice = it
+                            onSaveSettings(inputUserId, inputApiKey, inputApiUrl, inputModelName, it)
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = BrandPrimary)
+                    )
                 }
             }
 

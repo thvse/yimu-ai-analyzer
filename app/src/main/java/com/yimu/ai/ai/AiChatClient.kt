@@ -1,7 +1,9 @@
 package com.yimu.ai.ai
 
 import com.google.gson.Gson
-import com.google.gson.annotations.SerializedName
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
+import com.yimu.ai.data.ChatMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -12,8 +14,8 @@ import java.util.concurrent.TimeUnit
 
 class AiChatClient(
     var apiKey: String,
-    var baseUrl: String = "https://api.deepseek.com/chat/completions",
-    var model: String = "deepseek-chat"
+    var baseUrl: String = "https://api.xiaomimimo.com/v1/chat/completions",
+    var model: String = "mimo-v2.6-flash"
 ) {
 
     private val client = OkHttpClient.Builder()
@@ -27,36 +29,72 @@ class AiChatClient(
 
     suspend fun sendMessage(
         systemPrompt: String,
-        messages: List<Pair<Boolean, String>> // isUser to text
+        messages: List<ChatMessage>
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             if (apiKey.isBlank()) {
-                throw IllegalArgumentException("请先在设置中配置你的 AI API Key（如 DeepSeek 或 OpenAI）！")
+                throw IllegalArgumentException("请先在【设置】中配置你的 AI API Key（如小米 MiMo / DeepSeek / OpenAI）！")
             }
 
-            val apiMessages = mutableListOf<ApiMessage>()
-            // 注入账本上下文系统提示词
-            apiMessages.add(ApiMessage(role = "system", content = systemPrompt))
+            val requestBodyObj = JsonObject()
+            requestBodyObj.addProperty("model", model.trim())
+            requestBodyObj.addProperty("temperature", 0.6)
 
-            // 历史对话
-            for ((isUser, text) in messages) {
-                apiMessages.add(
-                    ApiMessage(
-                        role = if (isUser) "user" else "assistant",
-                        content = text
-                    )
-                )
+            val apiMessages = JsonArray()
+
+            // 1. 系统账本上下文
+            val sysMsg = JsonObject().apply {
+                addProperty("role", "system")
+                addProperty("content", systemPrompt)
+            }
+            apiMessages.add(sysMsg)
+
+            // 2. 对话历史与多模态内容 (支持文本 + 图片Base64)
+            for (msg in messages) {
+                val msgObj = JsonObject().apply {
+                    addProperty("role", if (msg.isUser) "user" else "assistant")
+                    if (msg.imageBase64.isNullOrBlank()) {
+                        addProperty("content", msg.text)
+                    } else {
+                        // 多模态消息体 (OpenAI / MiMo 规范)
+                        val parts = JsonArray()
+                        val textPart = JsonObject().apply {
+                            addProperty("type", "text")
+                            addProperty("text", if (msg.text.isNotBlank()) msg.text else "请分析这张账单/消费小票图片")
+                        }
+                        parts.add(textPart)
+
+                        val imgPart = JsonObject().apply {
+                            addProperty("type", "image_url")
+                            val urlObj = JsonObject().apply {
+                                val urlStr = if (msg.imageBase64.startsWith("data:")) {
+                                    msg.imageBase64
+                                } else {
+                                    "data:image/jpeg;base64,${msg.imageBase64}"
+                                }
+                                addProperty("url", urlStr)
+                            }
+                            add("image_url", urlObj)
+                        }
+                        parts.add(imgPart)
+                        add("content", parts)
+                    }
+                }
+                apiMessages.add(msgObj)
             }
 
-            val requestBodyObj = ChatRequest(
-                model = model,
-                messages = apiMessages,
-                temperature = 0.6
-            )
+            requestBodyObj.add("messages", apiMessages)
+
+            // 智能补全 endpoint
+            val targetUrl = when {
+                baseUrl.endsWith("/chat/completions") -> baseUrl.trim()
+                baseUrl.endsWith("/") -> "${baseUrl.trim()}chat/completions"
+                else -> "${baseUrl.trim()}/chat/completions"
+            }
 
             val jsonBody = gson.toJson(requestBodyObj)
             val request = Request.Builder()
-                .url(baseUrl)
+                .url(targetUrl)
                 .addHeader("Authorization", "Bearer ${apiKey.trim()}")
                 .addHeader("Content-Type", "application/json")
                 .post(jsonBody.toRequestBody(jsonMediaType))
@@ -76,17 +114,6 @@ class AiChatClient(
             content.trim()
         }
     }
-
-    private data class ChatRequest(
-        val model: String,
-        val messages: List<ApiMessage>,
-        val temperature: Double
-    )
-
-    private data class ApiMessage(
-        val role: String,
-        val content: String
-    )
 
     private data class ChatResponse(
         val choices: List<Choice>

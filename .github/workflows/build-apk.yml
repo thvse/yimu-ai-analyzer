@@ -43,14 +43,15 @@ jobs:
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          name: "一木AI账本助手 v1.0.0"
+          tag_name: v1.1.0
+          name: "一木AI账本助手 v1.1.0 (支持 MiMo 多模态与语音交互)"
           body: |
-            ### 📱 一木AI账本助手 (Yimu AI Analyzer)
-            - 🚀 原生 Android (Jetpack Compose + Material 3)
-            - 🔐 自动解密一木记账本地备份 `Custom.db`（同款 WinZip AES-256）
-            - 📊 账目统计透视、月度总览、分类支出榜单
-            - 🤖 DeepSeek / OpenAI 大模型上下文注入与智能财务体检
+            ### 📱 一木AI账本助手 v1.1.0 更新日志
+            - 🌟 **全面支持小米 MiMo (Mi-Model) 全模态大模型**（预设 endpoint 及 mimo-v2.6-flash / mimo-v2.6-pro）
+            - 📸 **图片/小票沟通**：点击相册图标即可发送购物小票、消费凭证、账单截图给 MiMo 视觉识别并推荐记账分类
+            - 🎙️ **语音输入沟通**：点击麦克风图标，直接说话转文字输入（适配小米小爱语音及各大手机原生语音输入法）
+            - 🔊 **语音播报朗读 (TTS)**：AI 回复支持点击朗读/停止，并在设置中支持开启“自动语音朗读”
+            - 🔐 **一木记账无感解密**：WinZip AES-256 算法本地解密 Custom.db，保护隐私
             
             **直接点击下方 Assets 中的 `app-debug.apk` 即可下载安装到手机。**
           files: app/build/outputs/apk/debug/app-debug.apk

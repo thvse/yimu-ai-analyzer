@@ -48,5 +48,7 @@ data class ChatMessage(
     val id: String = java.util.UUID.randomUUID().toString(),
     val text: String,
     val isUser: Boolean,
+    val imageUri: String? = null, // 本地图片 URI
+    val imageBase64: String? = null, // Base64 编码，用于传输给多模态大模型
     val timestamp: Long = System.currentTimeMillis()
 )

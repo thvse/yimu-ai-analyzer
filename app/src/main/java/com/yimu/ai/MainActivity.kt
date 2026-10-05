@@ -9,6 +9,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -40,26 +42,58 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
     private val prefs by lazy { getSharedPreferences("yimu_ai_prefs", Context.MODE_PRIVATE) }
     private var dbReader: YimuDbReader? = null
+
+    private var tts: TextToSpeech? = null
+    private var isTtsReady = false
+
     private val chatClient by lazy {
         AiChatClient(
             apiKey = prefs.getString("api_key", "") ?: "",
-            baseUrl = prefs.getString("api_url", "https://api.deepseek.com/chat/completions") ?: ""
+            baseUrl = prefs.getString("api_url", "https://api.xiaomimimo.com/v1/chat/completions") ?: "https://api.xiaomimimo.com/v1/chat/completions",
+            model = prefs.getString("model_name", "mimo-v2.6-flash") ?: "mimo-v2.6-flash"
         )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         checkAndRequestStoragePermissions()
+        initTextToSpeech()
 
         setContent {
             YimuAiTheme {
                 MainApp()
             }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            tts?.stop()
+            tts?.shutdown()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun initTextToSpeech() {
+        try {
+            tts = TextToSpeech(applicationContext) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    val result = tts?.setLanguage(Locale.CHINESE)
+                    if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
+                        isTtsReady = true
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -96,7 +130,15 @@ class MainActivity : ComponentActivity() {
 
         var userId by remember { mutableStateOf(prefs.getString("user_id", "") ?: "") }
         var apiKey by remember { mutableStateOf(prefs.getString("api_key", "") ?: "") }
-        var apiUrl by remember { mutableStateOf(prefs.getString("api_url", "https://api.deepseek.com/chat/completions") ?: "") }
+        var apiUrl by remember {
+            mutableStateOf(prefs.getString("api_url", "https://api.xiaomimimo.com/v1/chat/completions") ?: "https://api.xiaomimimo.com/v1/chat/completions")
+        }
+        var modelName by remember {
+            mutableStateOf(prefs.getString("model_name", "mimo-v2.6-flash") ?: "mimo-v2.6-flash")
+        }
+        var autoVoice by remember {
+            mutableStateOf(prefs.getBoolean("auto_voice", false))
+        }
 
         var summary by remember { mutableStateOf<SpendingSummary?>(null) }
         var recentBills by remember { mutableStateOf<List<BillItem>>(emptyList()) }
@@ -107,7 +149,33 @@ class MainActivity : ComponentActivity() {
         var statusMessage by remember { mutableStateOf<String?>(null) }
         var latestBackupName by remember { mutableStateOf<String?>(null) }
 
-        // 尝试自动解密并读取最新备份
+        var currentlySpeakingText by remember { mutableStateOf<String?>(null) }
+
+        fun speakOrStop(text: String) {
+            if (currentlySpeakingText == text) {
+                tts?.stop()
+                currentlySpeakingText = null
+            } else {
+                if (!isTtsReady) {
+                    Toast.makeText(this@MainActivity, "正在加载系统语音服务...", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                tts?.stop()
+                currentlySpeakingText = text
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {}
+                    override fun onDone(utteranceId: String?) {
+                        runOnUiThread { currentlySpeakingText = null }
+                    }
+                    override fun onError(utteranceId: String?) {
+                        runOnUiThread { currentlySpeakingText = null }
+                    }
+                })
+                tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "yimu_speech_id")
+            }
+        }
+
+        // 自动解密并读取最新备份
         fun doDecryptAndLoad() {
             if (userId.isBlank()) {
                 statusMessage = "请先配置一木记账的用户数字ID。"
@@ -134,7 +202,6 @@ class MainActivity : ComponentActivity() {
                     decryptResult.onSuccess { extractedDb ->
                         statusMessage = "解密成功！已就绪 Custom.db"
                         dbReader = YimuDbReader(extractedDb)
-                        // 加载数据
                         val sum = dbReader!!.getMonthlySummary()
                         val bills = dbReader!!.getBills(limit = 30)
                         summary = sum
@@ -143,7 +210,7 @@ class MainActivity : ComponentActivity() {
                         if (chatMessages.isEmpty()) {
                             chatMessages.add(
                                 ChatMessage(
-                                    text = "你好！我已经成功连接并解析了你的一木账本（共 ${sum.billCount} 笔记录，总支出 ¥%.2f）。你可以向我咨询任何消费结构、异常开销或财务优化建议！".format(sum.totalExpense),
+                                    text = "你好！我已经成功连接并解析了你的一木账本（共 ${sum.billCount} 笔记录，总支出 ¥%.2f）。你可以向我发送消费小票图片、使用语音输入，或咨询任何开销结构与省钱建议！".format(sum.totalExpense),
                                     isUser = false
                                 )
                             )
@@ -207,18 +274,30 @@ class MainActivity : ComponentActivity() {
                     1 -> ChatScreen(
                         messages = chatMessages,
                         isLoading = isAiThinking,
-                        onSendMessage = { query ->
-                            chatMessages.add(ChatMessage(text = query, isUser = true))
+                        currentlySpeakingText = currentlySpeakingText,
+                        onSpeakText = { text -> speakOrStop(text) },
+                        onSendMessage = { query, imgUri, imgB64 ->
+                            chatMessages.add(
+                                ChatMessage(
+                                    text = query,
+                                    isUser = true,
+                                    imageUri = imgUri,
+                                    imageBase64 = imgB64
+                                )
+                            )
                             isAiThinking = true
 
                             lifecycleScope.launch {
                                 val systemPrompt = PromptEngine.buildSystemPrompt(summary, recentBills)
-                                val history = chatMessages.map { it.isUser to it.text }
+                                val history = chatMessages.toList()
                                 val result = chatClient.sendMessage(systemPrompt, history)
 
                                 isAiThinking = false
                                 result.onSuccess { reply ->
                                     chatMessages.add(ChatMessage(text = reply, isUser = false))
+                                    if (autoVoice) {
+                                        speakOrStop(reply)
+                                    }
                                 }.onFailure { error ->
                                     chatMessages.add(
                                         ChatMessage(
@@ -234,21 +313,29 @@ class MainActivity : ComponentActivity() {
                         userId = userId,
                         apiKey = apiKey,
                         apiUrl = apiUrl,
+                        modelName = modelName,
+                        autoVoice = autoVoice,
                         latestBackupFileName = latestBackupName,
                         statusMessage = statusMessage,
                         isProcessing = isDecrypting,
-                        onSaveSettings = { newUid, newKey, newUrl ->
+                        onSaveSettings = { newUid, newKey, newUrl, newModel, newAutoVoice ->
                             userId = newUid
                             apiKey = newKey
                             apiUrl = newUrl
+                            modelName = newModel
+                            autoVoice = newAutoVoice
+
                             prefs.edit()
                                 .putString("user_id", newUid)
                                 .putString("api_key", newKey)
                                 .putString("api_url", newUrl)
+                                .putString("model_name", newModel)
+                                .putBoolean("auto_voice", newAutoVoice)
                                 .apply()
 
                             chatClient.apiKey = newKey
                             chatClient.baseUrl = newUrl
+                            chatClient.model = newModel
                             Toast.makeText(this@MainActivity, "配置已保存", Toast.LENGTH_SHORT).show()
                         },
                         onTriggerDecrypt = {

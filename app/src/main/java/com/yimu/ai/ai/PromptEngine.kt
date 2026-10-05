@@ -45,6 +45,7 @@ object PromptEngine {
         sb.appendLine("2. 主动发现消费结构中的异常点（如餐饮占比过高、某项突发大额开销、恩格尔系数偏高）。")
         sb.appendLine("3. 给出切实可行、不生硬的省钱与预算建议。")
         sb.appendLine("4. 回答条理清晰，多使用清晰的 Markdown 列表和重点加粗。语言亲切自然。")
+        sb.appendLine("5. 若用户发送了账单截图、购物小票或发票图片，利用你的多模态视觉能力自动识别消费金额、商家和项目明细，并推荐一木记账适配的一级/二级分类及记账建议。")
 
         return sb.toString()
     }
