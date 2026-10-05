@@ -22,6 +22,24 @@ class YimuDbReader(private val dbFile: File) {
     }
 
     /**
+     * 获取原生数据库 bill 表总行数（用于诊断）
+     */
+    fun getRawBillCount(): Int {
+        val db = openDb()
+        return try {
+            val cursor = db.rawQuery("SELECT count(*) FROM bill", null)
+            val cnt = if (cursor.moveToFirst()) cursor.getInt(0) else 0
+            cursor.close()
+            cnt
+        } catch (e: Exception) {
+            e.printStackTrace()
+            -1
+        } finally {
+            db.close()
+        }
+    }
+
+    /**
      * 获取所有一级分类字典
      */
     fun getParentCategories(): Map<Long, String> {
@@ -32,8 +50,8 @@ class YimuDbReader(private val dbFile: File) {
             val idIdx = cursor.getColumnIndex("categoryId")
             val nameIdx = cursor.getColumnIndex("categoryName")
             while (cursor.moveToNext()) {
-                val id = cursor.getLong(idIdx)
-                val name = cursor.getString(nameIdx)
+                val id = if (idIdx >= 0) cursor.getLong(idIdx) else 0L
+                val name = if (nameIdx >= 0) cursor.getString(nameIdx) else ""
                 result[id] = name
             }
             cursor.close()
@@ -56,8 +74,8 @@ class YimuDbReader(private val dbFile: File) {
             val idIdx = cursor.getColumnIndex("categoryId")
             val nameIdx = cursor.getColumnIndex("categoryName")
             while (cursor.moveToNext()) {
-                val id = cursor.getLong(idIdx)
-                val name = cursor.getString(nameIdx)
+                val id = if (idIdx >= 0) cursor.getLong(idIdx) else 0L
+                val name = if (nameIdx >= 0) cursor.getString(nameIdx) else ""
                 result[id] = name
             }
             cursor.close()
@@ -80,8 +98,8 @@ class YimuDbReader(private val dbFile: File) {
             val idIdx = cursor.getColumnIndex("assetId")
             val nameIdx = cursor.getColumnIndex("assetName")
             while (cursor.moveToNext()) {
-                val id = cursor.getLong(idIdx)
-                val name = cursor.getString(nameIdx)
+                val id = if (idIdx >= 0) cursor.getLong(idIdx) else 0L
+                val name = if (nameIdx >= 0) cursor.getString(nameIdx) else ""
                 result[id] = name
             }
             cursor.close()
@@ -104,7 +122,7 @@ class YimuDbReader(private val dbFile: File) {
 
         try {
             val cursor = db.rawQuery(
-                "SELECT assetId, assetName, assetNumber, groupName, assetType FROM asset WHERE delete_lpcolumn = 0 AND hide = 0 ORDER BY positionWeight ASC",
+                "SELECT assetId, assetName, assetNumber, groupName, assetType FROM asset WHERE (delete_lpcolumn != 1 OR delete_lpcolumn IS NULL) AND (hide != 1 OR hide IS NULL) ORDER BY positionWeight ASC",
                 null
             )
             val idIdx = cursor.getColumnIndex("assetId")
@@ -114,11 +132,11 @@ class YimuDbReader(private val dbFile: File) {
             val typeIdx = cursor.getColumnIndex("assetType")
 
             while (cursor.moveToNext()) {
-                val id = cursor.getLong(idIdx)
-                val name = cursor.getString(nameIdx) ?: "账户"
-                val balance = cursor.getDouble(numIdx)
-                val grp = cursor.getString(grpIdx) ?: ""
-                val type = cursor.getInt(typeIdx)
+                val id = if (idIdx >= 0) cursor.getLong(idIdx) else 0L
+                val name = if (nameIdx >= 0) (cursor.getString(nameIdx) ?: "账户") else "账户"
+                val balance = if (numIdx >= 0) cursor.getDouble(numIdx) else 0.0
+                val grp = if (grpIdx >= 0) (cursor.getString(grpIdx) ?: "") else ""
+                val type = if (typeIdx >= 0) cursor.getInt(typeIdx) else 1
 
                 if (balance >= 0) {
                     totalPositive += balance
@@ -165,17 +183,26 @@ class YimuDbReader(private val dbFile: File) {
             val query = """
                 SELECT id, cost, billType, time, remark, parentCategoryId, childCategoryId, assetId
                 FROM bill
-                WHERE delete_lpcolumn = 0
+                WHERE delete_lpcolumn != 1 OR delete_lpcolumn IS NULL
                 ORDER BY time DESC, id DESC
                 LIMIT $limit OFFSET $offset
             """.trimIndent()
 
             val cursor = db.rawQuery(query, null)
+            val idIdx = cursor.getColumnIndex("id")
+            val costIdx = cursor.getColumnIndex("cost")
+            val billTypeIdx = cursor.getColumnIndex("billType")
+            val timeIdx = cursor.getColumnIndex("time")
+            val remarkIdx = cursor.getColumnIndex("remark")
+            val parentCatIdx = cursor.getColumnIndex("parentCategoryId")
+            val childCatIdx = cursor.getColumnIndex("childCategoryId")
+            val assetIdIdx = cursor.getColumnIndex("assetId")
+
             while (cursor.moveToNext()) {
-                val id = cursor.getLong(cursor.getColumnIndexOrThrow("id"))
-                val cost = cursor.getDouble(cursor.getColumnIndexOrThrow("cost"))
-                val billType = cursor.getInt(cursor.getColumnIndexOrThrow("billType"))
-                val timeLong = cursor.getLong(cursor.getColumnIndexOrThrow("time"))
+                val id = if (idIdx >= 0) cursor.getLong(idIdx) else 0L
+                val cost = if (costIdx >= 0) cursor.getDouble(costIdx) else 0.0
+                val billType = if (billTypeIdx >= 0) cursor.getInt(billTypeIdx) else 0
+                val timeLong = if (timeIdx >= 0) cursor.getLong(timeIdx) else 0L
                 val timeStr = if (timeLong > 0) {
                     try {
                         dateFormat.format(Date(timeLong))
@@ -183,10 +210,10 @@ class YimuDbReader(private val dbFile: File) {
                         timeLong.toString()
                     }
                 } else ""
-                val remark = cursor.getString(cursor.getColumnIndexOrThrow("remark"))
-                val parentId = cursor.getLong(cursor.getColumnIndexOrThrow("parentCategoryId"))
-                val childId = cursor.getLong(cursor.getColumnIndexOrThrow("childCategoryId"))
-                val assetId = cursor.getLong(cursor.getColumnIndexOrThrow("assetId"))
+                val remark = if (remarkIdx >= 0) cursor.getString(remarkIdx) else null
+                val parentId = if (parentCatIdx >= 0) cursor.getLong(parentCatIdx) else 0L
+                val childId = if (childCatIdx >= 0) cursor.getLong(childCatIdx) else 0L
+                val assetId = if (assetIdIdx >= 0) cursor.getLong(assetIdIdx) else 0L
 
                 list.add(
                     BillItem(
@@ -216,10 +243,11 @@ class YimuDbReader(private val dbFile: File) {
     /**
      * 计算统计概要（总支出、总收入、结余、分类排名、资产概况）
      */
-    fun getMonthlySummary(): SpendingSummary {
+    fun getMonthlySummary(backupName: String = "", backupModifiedTime: String = ""): SpendingSummary {
         val db = openDb()
         val parentCats = getParentCategories()
         val assetSummary = getAssetSummary()
+        val rawCount = getRawBillCount()
 
         var totalExpense = 0.0
         var totalIncome = 0.0
@@ -227,16 +255,16 @@ class YimuDbReader(private val dbFile: File) {
         val categoryMap = mutableMapOf<String, Double>()
 
         try {
-            val query = "SELECT cost, billType, parentCategoryId FROM bill WHERE delete_lpcolumn = 0"
+            val query = "SELECT cost, billType, parentCategoryId FROM bill WHERE delete_lpcolumn != 1 OR delete_lpcolumn IS NULL"
             val cursor = db.rawQuery(query, null)
-            val costIdx = cursor.getColumnIndexOrThrow("cost")
-            val typeIdx = cursor.getColumnIndexOrThrow("billType")
-            val pCatIdx = cursor.getColumnIndexOrThrow("parentCategoryId")
+            val costIdx = cursor.getColumnIndex("cost")
+            val typeIdx = cursor.getColumnIndex("billType")
+            val pCatIdx = cursor.getColumnIndex("parentCategoryId")
 
             while (cursor.moveToNext()) {
-                val cost = cursor.getDouble(costIdx)
-                val type = cursor.getInt(typeIdx)
-                val pId = cursor.getLong(pCatIdx)
+                val cost = if (costIdx >= 0) cursor.getDouble(costIdx) else 0.0
+                val type = if (typeIdx >= 0) cursor.getInt(typeIdx) else 0
+                val pId = if (pCatIdx >= 0) cursor.getLong(pCatIdx) else 0L
                 val catName = parentCats[pId] ?: "其他"
 
                 count++
@@ -268,7 +296,10 @@ class YimuDbReader(private val dbFile: File) {
             balance = totalIncome - totalExpense,
             billCount = count,
             categoryRanking = rankings,
-            assetSummary = assetSummary
+            assetSummary = assetSummary,
+            rawBillCount = rawCount,
+            backupFileName = backupName,
+            backupFileModified = backupModifiedTime
         )
     }
 

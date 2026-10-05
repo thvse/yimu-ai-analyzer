@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yimu.ai.ui.theme.*
 
+import androidx.compose.material.icons.filled.FolderOpen
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -33,7 +35,8 @@ fun SettingsScreen(
     statusMessage: String?,
     isProcessing: Boolean,
     onSaveSettings: (userId: String, apiKey: String, apiUrl: String, modelName: String, autoVoice: Boolean) -> Unit,
-    onTriggerDecrypt: () -> Unit
+    onTriggerDecrypt: () -> Unit,
+    onPickBackupFile: () -> Unit
 ) {
     var inputUserId by remember(userId) { mutableStateOf(userId) }
     var inputApiKey by remember(apiKey) { mutableStateOf(apiKey) }
@@ -106,26 +109,42 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Button(
-                        onClick = {
-                            onSaveSettings(inputUserId, inputApiKey, inputApiUrl, inputModelName, inputAutoVoice)
-                            onTriggerDecrypt()
-                        },
-                        enabled = inputUserId.isNotBlank() && !isProcessing,
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
-                        shape = RoundedCornerShape(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (isProcessing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("正在解密 Custom.db 中...")
-                        } else {
-                            Text("立即解密并同步账本")
+                        OutlinedButton(
+                            onClick = onPickBackupFile,
+                            enabled = !isProcessing,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("手动挑选文件")
+                        }
+
+                        Button(
+                            onClick = {
+                                onSaveSettings(inputUserId, inputApiKey, inputApiUrl, inputModelName, inputAutoVoice)
+                                onTriggerDecrypt()
+                            },
+                            enabled = inputUserId.isNotBlank() && !isProcessing,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            if (isProcessing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("解密中...")
+                            } else {
+                                Text("扫描并同步")
+                            }
                         }
                     }
                 }

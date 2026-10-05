@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -33,6 +34,7 @@ fun HomeScreen(
     recentBills: List<BillItem>,
     isDecrypting: Boolean,
     onRefresh: () -> Unit,
+    onPickBackupFile: () -> Unit,
     onNavigateToChat: () -> Unit,
     onNavigateToSettings: () -> Unit
 ) {
@@ -47,6 +49,9 @@ fun HomeScreen(
                     )
                 },
                 actions = {
+                    IconButton(onClick = onPickBackupFile, enabled = !isDecrypting) {
+                        Icon(Icons.Default.FolderOpen, contentDescription = "手动选择备份包", tint = BrandPrimary)
+                    }
                     IconButton(onClick = onRefresh, enabled = !isDecrypting) {
                         Icon(Icons.Default.Refresh, contentDescription = "刷新")
                     }
@@ -82,16 +87,27 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "请先前往【设置】页面输入你的一木记账用户ID，并确认已在手机上进行了本地备份。",
+                            "你可以直接手动选择手机上的备份 .zip 文件，或在设置中输入密码后自动扫描同步。",
                             fontSize = 14.sp,
                             color = TextSecondary
                         )
                         Spacer(modifier = Modifier.height(20.dp))
-                        Button(
-                            onClick = onNavigateToSettings,
-                            colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary)
-                        ) {
-                            Text("前往配置用户ID")
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedButton(
+                                onClick = onPickBackupFile,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("选择备份文件")
+                            }
+                            Button(
+                                onClick = onNavigateToSettings,
+                                colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("配置用户ID")
+                            }
                         }
                     }
                 }
@@ -104,7 +120,50 @@ fun HomeScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 1. 资产与净资产总览卡片（首要展示）
+                // 当前所读取的备份文件状态栏
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "当前备份: ${summary.backupFileName.ifBlank { "已加载数据库" }}",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary,
+                                    maxLines = 1
+                                )
+                                if (summary.backupFileModified.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "修改时间: ${summary.backupFileModified}",
+                                        fontSize = 11.sp,
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
+                            TextButton(
+                                onClick = onPickBackupFile,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("切换文件", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+
+                // 1. 资产与净资产总览卡片
                 summary.assetSummary?.let { assets ->
                     item {
                         NetWorthCard(assets = assets, onNavigateToChat = onNavigateToChat)
@@ -174,18 +233,29 @@ fun HomeScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column {
                                     Text(
-                                        "当前备份包暂无收支流水",
+                                        "当前备份包暂未包含收支流水 (${summary.billCount} 笔)",
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 14.sp,
                                         color = TextPrimary
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        "当前解密成功识别了 7 个资产账户。如果您在一木记账中其他账本记过流水，请在一木记账中确认当前账本并重新导出备份；您也可以直接点击底部【AI顾问】向小米大模型咨询资产负债结构或发送小票进行智能识别记账！",
+                                        "如果您刚刚在一木记账中导出了新备份，但这里仍显示 0，通常是因为该备份包保存在了其他目录（如 Download 下载目录），导致读取了旧备份。请点击右上角【📂 文件夹图标】手动选中您刚刚导出的新 zip 备份包即可！",
                                         fontSize = 12.sp,
                                         color = TextSecondary,
                                         lineHeight = 18.sp
                                     )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Button(
+                                        onClick = onPickBackupFile,
+                                        colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("立即手动挑选新备份文件", fontSize = 12.sp)
+                                    }
                                 }
                             }
                         }
@@ -410,6 +480,16 @@ private fun SpendingOverviewCard(summary: SpendingSummary) {
                 Text(
                     "¥%.2f".format(summary.balance),
                     color = if (summary.balance >= 0) TextPrimary else ExpenseRed,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            }
+            Column {
+                Text("流水笔数", color = TextSecondary, fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "${summary.billCount} 笔",
+                    color = TextPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp
                 )

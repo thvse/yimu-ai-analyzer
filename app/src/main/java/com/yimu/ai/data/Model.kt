@@ -47,13 +47,10 @@ data class SpendingSummary(
     val balance: Double,
     val billCount: Int,
     val categoryRanking: List<CategoryExpense>,
-    val assetSummary: AssetSummary? = null
-)
-
-data class CategoryExpense(
-    val categoryName: String,
-    val amount: Double,
-    val percentage: Float
+    val assetSummary: AssetSummary? = null,
+    val rawBillCount: Int = 0,
+    val backupFileName: String = "",
+    val backupFileModified: String = ""
 )
 
 data class ChatMessage(

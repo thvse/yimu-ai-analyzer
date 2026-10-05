@@ -13,7 +13,9 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -42,6 +44,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -175,37 +179,46 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 自动解密并读取最新备份
-        fun doDecryptAndLoad() {
+        // 解密并读取指定或最新的备份文件
+        fun doDecryptAndLoad(specificZip: File? = null, label: String? = null) {
             if (userId.isBlank()) {
                 statusMessage = "请先配置一木记账的用户数字ID。"
+                selectedTab = 2
                 return
             }
 
-            val latestZip = BackupDecryptor.findLatestBackupFile()
-            if (latestZip == null) {
-                statusMessage = "未在一木记账备份目录 (/sdcard/Documents/一木记账) 下检测到 .zip 备份包！"
+            val targetZip = specificZip ?: BackupDecryptor.findLatestBackupFile()
+            if (targetZip == null) {
+                statusMessage = "未自动检测到备份包，请点击【手动挑选文件】选择手机上的 .zip 备份！"
                 latestBackupName = null
                 return
             }
 
-            latestBackupName = "${latestZip.name} (${latestZip.length() / 1024} KB)"
+            val modTimeStr = try {
+                SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(targetZip.lastModified()))
+            } catch (e: Exception) { "" }
+
+            latestBackupName = "${label ?: targetZip.name} (${targetZip.length() / 1024} KB)"
             isDecrypting = true
-            statusMessage = "正在解密 ${latestZip.name}..."
+            statusMessage = "正在解密 ${targetZip.name}..."
 
             lifecycleScope.launch(Dispatchers.IO) {
                 val destDir = File(filesDir, "extracted_db")
-                val decryptResult = BackupDecryptor.decryptCustomDb(latestZip, destDir, userId)
+                val decryptResult = BackupDecryptor.decryptCustomDb(targetZip, destDir, userId)
 
                 withContext(Dispatchers.Main) {
                     isDecrypting = false
                     decryptResult.onSuccess { extractedDb ->
-                        statusMessage = "解密成功！已就绪 Custom.db"
                         dbReader = YimuDbReader(extractedDb)
-                        val sum = dbReader!!.getMonthlySummary()
-                        val bills = dbReader!!.getBills(limit = 30)
+                        val sum = dbReader!!.getMonthlySummary(
+                            backupName = label ?: targetZip.name,
+                            backupModifiedTime = modTimeStr
+                        )
+                        val bills = dbReader!!.getBills(limit = 50)
                         summary = sum
                         recentBills = bills
+                        statusMessage = "解密成功！包含 ${sum.billCount} 笔流水，${sum.assetSummary?.accounts?.size ?: 0} 个账户"
+                        Toast.makeText(this@MainActivity, "同步成功: ${sum.billCount} 笔流水，${sum.assetSummary?.accounts?.size ?: 0} 个账户", Toast.LENGTH_SHORT).show()
 
                         if (chatMessages.isEmpty()) {
                             val assets = sum.assetSummary
@@ -224,6 +237,38 @@ class MainActivity : ComponentActivity() {
                         Toast.makeText(this@MainActivity, statusMessage, Toast.LENGTH_LONG).show()
                     }
                 }
+            }
+        }
+
+        // 系统文件选择器 (SAF)
+        val filePickerLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocument()
+        ) { uri: Uri? ->
+            if (uri != null) {
+                isDecrypting = true
+                statusMessage = "正在读取所选备份文件..."
+                lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        val tempFile = BackupDecryptor.copyUriToTempFile(this@MainActivity, uri)
+                        withContext(Dispatchers.Main) {
+                            doDecryptAndLoad(specificZip = tempFile, label = "用户手动选择的文件")
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            isDecrypting = false
+                            statusMessage = "读取文件失败: ${e.message}"
+                            Toast.makeText(this@MainActivity, statusMessage, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+        }
+
+        fun launchFilePicker() {
+            try {
+                filePickerLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+            } catch (e: Exception) {
+                Toast.makeText(this@MainActivity, "无法启动文件选择器: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -272,6 +317,7 @@ class MainActivity : ComponentActivity() {
                         recentBills = recentBills,
                         isDecrypting = isDecrypting,
                         onRefresh = { doDecryptAndLoad() },
+                        onPickBackupFile = { launchFilePicker() },
                         onNavigateToChat = { selectedTab = 1 },
                         onNavigateToSettings = { selectedTab = 2 }
                     )
@@ -344,6 +390,9 @@ class MainActivity : ComponentActivity() {
                         },
                         onTriggerDecrypt = {
                             doDecryptAndLoad()
+                        },
+                        onPickBackupFile = {
+                            launchFilePicker()
                         }
                     )
                 }
