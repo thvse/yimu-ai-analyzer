@@ -11,10 +11,21 @@ data class BillItem(
     val childCategoryId: Long,
     val childCategoryName: String,
     val assetId: Long,
-    val assetName: String
+    val assetName: String,
+    val recordMethod: Int = 1 // 1: 手动, 3: 导入, 4: 周期, 5: 自动, 6: 借还
 ) {
     val isExpense: Boolean get() = billType == 0
     val isIncome: Boolean get() = billType == 1
+    val isTransfer: Boolean get() = billType == 2
+
+    val recordMethodName: String get() = when (recordMethod) {
+        1 -> "手动记账"
+        3 -> "账单导入"
+        4 -> "周期记账"
+        5 -> "自动记账"
+        6 -> "借贷管理"
+        else -> "记账"
+    }
 }
 
 data class CategoryItem(
@@ -46,7 +57,8 @@ data class SpendingSummary(
     val totalIncome: Double,
     val balance: Double,
     val billCount: Int,
-    val categoryRanking: List<CategoryExpense>,
+    val categoryRanking: List<CategoryExpense>, // 支出排行
+    val incomeRanking: List<CategoryExpense> = emptyList(), // 收入排行
     val assetSummary: AssetSummary? = null,
     val rawBillCount: Int = 0,
     val backupFileName: String = "",
@@ -54,9 +66,12 @@ data class SpendingSummary(
 )
 
 data class CategoryExpense(
+    val categoryId: Long = 0,
     val categoryName: String,
     val amount: Double,
-    val percentage: Float
+    val percentage: Float,
+    val count: Int = 0,
+    val isIncome: Boolean = false
 )
 
 data class ChatMessage(

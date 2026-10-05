@@ -39,6 +39,20 @@ class YimuDbReader(private val dbFile: File) {
     }
 
     /**
+     * 判定某一分类是否为“收入”类别
+     * 一木记账默认：
+     * parentCategoryId == 9 为系统“收入”大类
+     * 其余所有预设分类（1~8、99）均为“支出”
+     * 兼容用户自定义分类：若分类名称含有“收入”、“工资”、“奖金”、“报销”、“补贴”等字样，亦判定为收入
+     */
+    fun isIncomeCategory(parentCategoryId: Long, parentCategoryName: String, childCategoryName: String = ""): Boolean {
+        if (parentCategoryId == 9L) return true
+        if (parentCategoryName.contains("收入") || parentCategoryName.contains("工资") || parentCategoryName.contains("奖金") || parentCategoryName.contains("报销")) return true
+        if (childCategoryName.contains("收入") || childCategoryName.contains("工资") || childCategoryName.contains("奖金") || childCategoryName.contains("报销")) return true
+        return false
+    }
+
+    /**
      * 获取原生数据库 bill 表总行数（用于诊断）
      */
     fun getRawBillCount(): Int {
@@ -57,7 +71,7 @@ class YimuDbReader(private val dbFile: File) {
     }
 
     /**
-     * 获取所有一级分类字典
+     * 获取所有一级分类字典 (id -> name)
      */
     fun getParentCategories(): Map<Long, String> {
         val db = openDb()
@@ -83,7 +97,7 @@ class YimuDbReader(private val dbFile: File) {
     }
 
     /**
-     * 获取所有二级分类字典
+     * 获取所有二级分类字典 (id -> name)
      */
     fun getChildCategories(): Map<Long, String> {
         val db = openDb()
@@ -109,7 +123,7 @@ class YimuDbReader(private val dbFile: File) {
     }
 
     /**
-     * 获取所有账户/资产字典
+     * 获取所有账户/资产字典 (id -> name)
      */
     fun getAssets(): Map<Long, String> {
         val db = openDb()
@@ -193,7 +207,7 @@ class YimuDbReader(private val dbFile: File) {
     }
 
     /**
-     * 分页查询账单明细（合并 bill 与 transfer 表）
+     * 分页查询账单明细（合并 bill 与 transfer 表，准确判定支出/收入/转账）
      */
     fun getBills(limit: Int = 100, offset: Int = 0): List<BillItem> {
         val db = openDb()
@@ -214,7 +228,7 @@ class YimuDbReader(private val dbFile: File) {
             val cursor = db.rawQuery(billQuery, null)
             val idIdx = cursor.col("id")
             val costIdx = cursor.col("cost")
-            val billTypeIdx = cursor.col("billtype")
+            val rawBillTypeIdx = cursor.col("billtype")
             val timeIdx = cursor.col("time")
             val remarkIdx = cursor.col("remark")
             val parentCatIdx = cursor.col("parentcategoryid")
@@ -224,7 +238,7 @@ class YimuDbReader(private val dbFile: File) {
             while (cursor.moveToNext()) {
                 val id = if (idIdx >= 0) cursor.getLong(idIdx) else 0L
                 val cost = if (costIdx >= 0) cursor.getDouble(costIdx) else 0.0
-                val billType = if (billTypeIdx >= 0) cursor.getInt(billTypeIdx) else 0
+                val rawMethod = if (rawBillTypeIdx >= 0) cursor.getInt(rawBillTypeIdx) else 1
                 val timeLong = if (timeIdx >= 0) cursor.getLong(timeIdx) else 0L
                 val timeStr = if (timeLong > 0) {
                     try {
@@ -238,19 +252,27 @@ class YimuDbReader(private val dbFile: File) {
                 val childId = if (childCatIdx >= 0) cursor.getLong(childCatIdx) else 0L
                 val assetId = if (assetIdIdx >= 0) cursor.getLong(assetIdIdx) else 0L
 
+                val parentName = parentCats[parentId] ?: "默认分类"
+                val childName = childCats[childId] ?: "常规"
+
+                // 核心修复：依据真实分类判断收支类型
+                val isInc = isIncomeCategory(parentId, parentName, childName)
+                val normalizedType = if (isInc) 1 else 0 // 0: 支出, 1: 收入
+
                 list.add(
                     BillItem(
                         id = id,
                         cost = cost,
-                        billType = billType,
+                        billType = normalizedType,
                         time = timeStr,
                         remark = remark,
                         parentCategoryId = parentId,
-                        parentCategoryName = parentCats[parentId] ?: "默认",
+                        parentCategoryName = parentName,
                         childCategoryId = childId,
-                        childCategoryName = childCats[childId] ?: "其他",
+                        childCategoryName = childName,
                         assetId = assetId,
-                        assetName = assets[assetId] ?: "账户"
+                        assetName = assets[assetId] ?: "账户",
+                        recordMethod = rawMethod
                     )
                 )
             }
@@ -288,19 +310,20 @@ class YimuDbReader(private val dbFile: File) {
                             cost = cost,
                             billType = 2, // 2: 转账
                             time = timeStr,
-                            remark = remark ?: "转账至 $toName",
+                            remark = remark ?: "内部转账: $fromName ➔ $toName",
                             parentCategoryId = 0L,
                             parentCategoryName = "转账",
                             childCategoryId = 0L,
                             childCategoryName = "$fromName ➔ $toName",
                             assetId = fromId,
-                            assetName = fromName
+                            assetName = fromName,
+                            recordMethod = 1
                         )
                     )
                 }
                 transferCursor.close()
             } catch (e: Exception) {
-                // transfer 表可能不存在或为空，忽略
+                // transfer 表可能为空或不存在，忽略
             }
 
             // 按时间倒序排序
@@ -315,40 +338,57 @@ class YimuDbReader(private val dbFile: File) {
     }
 
     /**
-     * 计算统计概要（总支出、总收入、结余、分类排名、资产概况）
+     * 计算统计概要（总支出、总收入、结余、支出/收入分类排行榜、资产概况）
      */
     fun getMonthlySummary(backupName: String = "", backupModifiedTime: String = ""): SpendingSummary {
         val db = openDb()
         val parentCats = getParentCategories()
+        val childCats = getChildCategories()
         val assetSummary = getAssetSummary()
         val rawCount = getRawBillCount()
 
         var totalExpense = 0.0
         var totalIncome = 0.0
         var count = 0
-        val categoryMap = mutableMapOf<String, Double>()
+
+        val expenseCategoryMap = mutableMapOf<String, Double>()
+        val expenseCategoryCount = mutableMapOf<String, Int>()
+        val expenseCategoryIdMap = mutableMapOf<String, Long>()
+
+        val incomeCategoryMap = mutableMapOf<String, Double>()
+        val incomeCategoryCount = mutableMapOf<String, Int>()
+        val incomeCategoryIdMap = mutableMapOf<String, Long>()
 
         try {
             val cursor = db.rawQuery(
-                "SELECT cost, billtype, parentcategoryid FROM bill WHERE delete_lpcolumn != 1 OR delete_lpcolumn IS NULL",
+                "SELECT cost, parentcategoryid, childcategoryid FROM bill WHERE delete_lpcolumn != 1 OR delete_lpcolumn IS NULL",
                 null
             )
             val costIdx = cursor.col("cost")
-            val typeIdx = cursor.col("billtype")
             val pCatIdx = cursor.col("parentcategoryid")
+            val cCatIdx = cursor.col("childcategoryid")
 
             while (cursor.moveToNext()) {
                 val cost = if (costIdx >= 0) cursor.getDouble(costIdx) else 0.0
-                val type = if (typeIdx >= 0) cursor.getInt(typeIdx) else 0
                 val pId = if (pCatIdx >= 0) cursor.getLong(pCatIdx) else 0L
-                val catName = parentCats[pId] ?: "其他"
+                val cId = if (cCatIdx >= 0) cursor.getLong(cCatIdx) else 0L
+
+                val pName = parentCats[pId] ?: "默认分类"
+                val cName = childCats[cId] ?: "常规"
 
                 count++
-                if (type == 0) { // 支出
-                    totalExpense += cost
-                    categoryMap[catName] = (categoryMap[catName] ?: 0.0) + cost
-                } else if (type == 1) { // 收入
+                val isInc = isIncomeCategory(pId, pName, cName)
+
+                if (isInc) {
                     totalIncome += cost
+                    incomeCategoryMap[pName] = (incomeCategoryMap[pName] ?: 0.0) + cost
+                    incomeCategoryCount[pName] = (incomeCategoryCount[pName] ?: 0) + 1
+                    incomeCategoryIdMap[pName] = pId
+                } else {
+                    totalExpense += cost
+                    expenseCategoryMap[pName] = (expenseCategoryMap[pName] ?: 0.0) + cost
+                    expenseCategoryCount[pName] = (expenseCategoryCount[pName] ?: 0) + 1
+                    expenseCategoryIdMap[pName] = pId
                 }
             }
             cursor.close()
@@ -358,12 +398,34 @@ class YimuDbReader(private val dbFile: File) {
             db.close()
         }
 
-        // 计算分类百分比排序
-        val rankings = categoryMap.entries
+        // 支出分类百分比排行
+        val expenseRankings = expenseCategoryMap.entries
             .sortedByDescending { it.value }
             .map { (name, amount) ->
                 val pct = if (totalExpense > 0) (amount / totalExpense).toFloat() else 0f
-                CategoryExpense(categoryName = name, amount = amount, percentage = pct)
+                CategoryExpense(
+                    categoryId = expenseCategoryIdMap[name] ?: 0L,
+                    categoryName = name,
+                    amount = amount,
+                    percentage = pct,
+                    count = expenseCategoryCount[name] ?: 0,
+                    isIncome = false
+                )
+            }
+
+        // 收入分类百分比排行
+        val incomeRankings = incomeCategoryMap.entries
+            .sortedByDescending { it.value }
+            .map { (name, amount) ->
+                val pct = if (totalIncome > 0) (amount / totalIncome).toFloat() else 0f
+                CategoryExpense(
+                    categoryId = incomeCategoryIdMap[name] ?: 0L,
+                    categoryName = name,
+                    amount = amount,
+                    percentage = pct,
+                    count = incomeCategoryCount[name] ?: 0,
+                    isIncome = true
+                )
             }
 
         return SpendingSummary(
@@ -371,7 +433,8 @@ class YimuDbReader(private val dbFile: File) {
             totalIncome = totalIncome,
             balance = totalIncome - totalExpense,
             billCount = count,
-            categoryRanking = rankings,
+            categoryRanking = expenseRankings,
+            incomeRanking = incomeRankings,
             assetSummary = assetSummary,
             rawBillCount = rawCount,
             backupFileName = backupName,

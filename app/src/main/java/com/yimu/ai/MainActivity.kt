@@ -16,6 +16,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -214,7 +221,7 @@ class MainActivity : ComponentActivity() {
                             backupName = label ?: targetZip.name,
                             backupModifiedTime = modTimeStr
                         )
-                        val bills = dbReader!!.getBills(limit = 50)
+                        val bills = dbReader!!.getBills(limit = 60)
                         summary = sum
                         recentBills = bills
                         statusMessage = "解密成功！包含 ${sum.billCount} 笔流水，${sum.assetSummary?.accounts?.size ?: 0} 个账户"
@@ -310,91 +317,106 @@ class MainActivity : ComponentActivity() {
                 }
             }
         ) { padding ->
-            Box(modifier = Modifier.padding(padding)) {
-                when (selectedTab) {
-                    0 -> HomeScreen(
-                        summary = summary,
-                        recentBills = recentBills,
-                        isDecrypting = isDecrypting,
-                        onRefresh = { doDecryptAndLoad() },
-                        onPickBackupFile = { launchFilePicker() },
-                        onNavigateToChat = { selectedTab = 1 },
-                        onNavigateToSettings = { selectedTab = 2 }
-                    )
-                    1 -> ChatScreen(
-                        messages = chatMessages,
-                        isLoading = isAiThinking,
-                        currentlySpeakingText = currentlySpeakingText,
-                        onSpeakText = { text -> speakOrStop(text) },
-                        onSendMessage = { query, imgUri, imgB64 ->
-                            chatMessages.add(
-                                ChatMessage(
-                                    text = query,
-                                    isUser = true,
-                                    imageUri = imgUri,
-                                    imageBase64 = imgB64
-                                )
-                            )
-                            isAiThinking = true
-
-                            lifecycleScope.launch {
-                                val systemPrompt = PromptEngine.buildSystemPrompt(summary, recentBills)
-                                val history = chatMessages.toList()
-                                val result = chatClient.sendMessage(systemPrompt, history)
-
-                                isAiThinking = false
-                                result.onSuccess { reply ->
-                                    chatMessages.add(ChatMessage(text = reply, isUser = false))
-                                    if (autoVoice) {
-                                        speakOrStop(reply)
-                                    }
-                                }.onFailure { error ->
-                                    chatMessages.add(
-                                        ChatMessage(
-                                            text = "请求失败: ${error.message}",
-                                            isUser = false
-                                        )
+            Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+                AnimatedContent(
+                    targetState = selectedTab,
+                    transitionSpec = {
+                        if (targetState > initialState) {
+                            (slideInHorizontally { width -> width / 4 } + fadeIn(animationSpec = tween(220)))
+                                .togetherWith(slideOutHorizontally { width -> -width / 4 } + fadeOut(animationSpec = tween(220)))
+                        } else {
+                            (slideInHorizontally { width -> -width / 4 } + fadeIn(animationSpec = tween(220)))
+                                .togetherWith(slideOutHorizontally { width -> width / 4 } + fadeOut(animationSpec = tween(220)))
+                        }
+                    },
+                    label = "tab_switch_transition",
+                    modifier = Modifier.fillMaxSize()
+                ) { tabIndex ->
+                    when (tabIndex) {
+                        0 -> HomeScreen(
+                            summary = summary,
+                            recentBills = recentBills,
+                            isDecrypting = isDecrypting,
+                            onRefresh = { doDecryptAndLoad() },
+                            onPickBackupFile = { launchFilePicker() },
+                            onNavigateToChat = { selectedTab = 1 },
+                            onNavigateToSettings = { selectedTab = 2 }
+                        )
+                        1 -> ChatScreen(
+                            messages = chatMessages,
+                            isLoading = isAiThinking,
+                            currentlySpeakingText = currentlySpeakingText,
+                            onSpeakText = { text -> speakOrStop(text) },
+                            onSendMessage = { query, imgUri, imgB64 ->
+                                chatMessages.add(
+                                    ChatMessage(
+                                        text = query,
+                                        isUser = true,
+                                        imageUri = imgUri,
+                                        imageBase64 = imgB64
                                     )
+                                )
+                                isAiThinking = true
+
+                                lifecycleScope.launch {
+                                    val systemPrompt = PromptEngine.buildSystemPrompt(summary, recentBills)
+                                    val history = chatMessages.toList()
+                                    val result = chatClient.sendMessage(systemPrompt, history)
+
+                                    isAiThinking = false
+                                    result.onSuccess { reply ->
+                                        chatMessages.add(ChatMessage(text = reply, isUser = false))
+                                        if (autoVoice) {
+                                            speakOrStop(reply)
+                                        }
+                                    }.onFailure { error ->
+                                        chatMessages.add(
+                                            ChatMessage(
+                                                text = "请求失败: ${error.message}",
+                                                isUser = false
+                                            )
+                                        )
+                                    }
                                 }
                             }
-                        }
-                    )
-                    2 -> SettingsScreen(
-                        userId = userId,
-                        apiKey = apiKey,
-                        apiUrl = apiUrl,
-                        modelName = modelName,
-                        autoVoice = autoVoice,
-                        latestBackupFileName = latestBackupName,
-                        statusMessage = statusMessage,
-                        isProcessing = isDecrypting,
-                        onSaveSettings = { newUid, newKey, newUrl, newModel, newAutoVoice ->
-                            userId = newUid
-                            apiKey = newKey
-                            apiUrl = newUrl
-                            modelName = newModel
-                            autoVoice = newAutoVoice
+                        )
+                        2 -> SettingsScreen(
+                            userId = userId,
+                            apiKey = apiKey,
+                            apiUrl = apiUrl,
+                            modelName = modelName,
+                            autoVoice = autoVoice,
+                            latestBackupFileName = latestBackupName,
+                            statusMessage = statusMessage,
+                            isProcessing = isDecrypting,
+                            onSaveSettings = { newUid, newKey, newUrl, newModel, newAutoVoice ->
+                                userId = newUid
+                                apiKey = newKey
+                                apiUrl = newUrl
+                                modelName = newModel
+                                autoVoice = newAutoVoice
 
-                            prefs.edit()
-                                .putString("user_id", newUid)
-                                .putString("api_key", newKey)
-                                .putString("api_url", newUrl)
-                                .putString("model_name", newModel)
-                                .putBoolean("auto_voice", newAutoVoice)
-                                .apply()
+                                prefs.edit()
+                                    .putString("user_id", newUid)
+                                    .putString("api_key", newKey)
+                                    .putString("api_url", newUrl)
+                                    .putString("model_name", newModel)
+                                    .putBoolean("auto_voice", newAutoVoice)
+                                    .apply()
 
-                            chatClient.apiKey = newKey
-                            chatClient.baseUrl = newUrl
-                            chatClient.model = newModel
-                            Toast.makeText(this@MainActivity, "配置已保存", Toast.LENGTH_SHORT).show()
-                        },
-                        onTriggerDecrypt = {
-                            doDecryptAndLoad()
-                        },
-                        onPickBackupFile = {
-                            launchFilePicker()
-                        }
-                    )
+                                chatClient.apiKey = newKey
+                                chatClient.baseUrl = newUrl
+                                chatClient.model = newModel
+                                Toast.makeText(this@MainActivity, "配置已保存", Toast.LENGTH_SHORT).show()
+                            },
+                            onTriggerDecrypt = {
+                                doDecryptAndLoad()
+                            },
+                            onPickBackupFile = {
+                                launchFilePicker()
+                            }
+                        )
+                    }
                 }
             }
         }

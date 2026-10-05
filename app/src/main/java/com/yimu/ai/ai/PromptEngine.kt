@@ -37,9 +37,17 @@ object PromptEngine {
 
             if (summary.categoryRanking.isNotEmpty()) {
                 sb.appendLine()
-                sb.appendLine("### 各项分类支出排行：")
+                sb.appendLine("### 各项分类支出排行（前 8 项）：")
                 summary.categoryRanking.take(8).forEachIndexed { index, cat ->
-                    sb.appendLine("${index + 1}. ${cat.categoryName}：¥%.2f (占比 %.1f%%)".format(cat.amount, cat.percentage * 100))
+                    sb.appendLine("${index + 1}. ${cat.categoryName}：¥%.2f (占比 %.1f%%，共 %d 笔)".format(cat.amount, cat.percentage * 100, cat.count))
+                }
+            }
+
+            if (summary.incomeRanking.isNotEmpty()) {
+                sb.appendLine()
+                sb.appendLine("### 收入来源分类明细：")
+                summary.incomeRanking.take(5).forEachIndexed { index, cat ->
+                    sb.appendLine("${index + 1}. ${cat.categoryName}：¥%.2f (占比 %.1f%%，共 %d 笔)".format(cat.amount, cat.percentage * 100, cat.count))
                 }
             }
         } else {
@@ -48,11 +56,11 @@ object PromptEngine {
 
         if (recentBills.isNotEmpty()) {
             sb.appendLine()
-            sb.appendLine("### 最近记账明细（精选前 15 笔）：")
-            recentBills.take(15).forEach { b ->
-                val typeStr = if (b.isExpense) "支出" else "收入"
+            sb.appendLine("### 最近记账明细（精选前 20 笔）：")
+            recentBills.take(20).forEach { b ->
+                val typeStr = if (b.isTransfer) "内部转账" else if (b.isExpense) "支出" else "收入"
                 val remarkStr = if (!b.remark.isNullOrBlank()) " (${b.remark})" else ""
-                sb.appendLine("- [${b.time}] $typeStr ¥%.2f | 分类: ${b.parentCategoryName}->${b.childCategoryName} | 账户: ${b.assetName}$remarkStr".format(b.cost))
+                sb.appendLine("- [${b.time}] $typeStr ¥%.2f | 分类: ${b.parentCategoryName}->${b.childCategoryName} | 方式: ${b.recordMethodName} | 账户: ${b.assetName}$remarkStr".format(b.cost))
             }
         } else if (summary != null && summary.billCount == 0) {
             sb.appendLine()
@@ -61,9 +69,9 @@ object PromptEngine {
 
         sb.appendLine()
         sb.appendLine("### 你的分析与回复原则：")
-        sb.appendLine("1. 严格基于上述真实的账本数据回答用户的提问，当用户询问财务、负债、资产时给出具体真实数字。")
+        sb.appendLine("1. 严格基于上述真实的账本数据回答用户的提问，当用户询问财务、负债、资产或分类消费时给出具体真实数字与百分比。")
         sb.appendLine("2. 资产负债健康度评估：结合正向资产与负债结构（如借呗、花呗、欠款），给出科学的负债偿还顺序与应急备用金建议。")
-        sb.appendLine("3. 回答条理清晰，多使用清晰的 Markdown 列表和重点加粗。语言亲切自然、充满鼓励。")
+        sb.appendLine("3. 回答排版优雅，多使用 Markdown 标题、小表格、引用块(>)和重点加粗(**)。")
         sb.appendLine("4. 若用户发送了账单截图、购物小票或发票图片，利用你的多模态视觉能力自动识别消费金额、商家和项目明细，并推荐一木记账适配的一级/二级分类及记账建议。")
 
         return sb.toString()

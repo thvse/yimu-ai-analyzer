@@ -10,6 +10,11 @@ import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -37,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.yimu.ai.data.ChatMessage
+import com.yimu.ai.ui.components.MarkdownView
 import com.yimu.ai.ui.theme.*
 import com.yimu.ai.utils.ImageHelper
 
@@ -63,7 +69,8 @@ fun ChatScreen(
         "📸 帮我识别这张消费小票/账单",
         "🍔 统计餐饮外卖一共花了多少？",
         "💡 给出3个最有效的个性化省钱建议",
-        "⚠️ 排查近期异常或突发的大额支出"
+        "⚠️ 排查近期异常或突发的大额支出",
+        "💳 负债与信用账户偿还建议"
     )
 
     // 相册选图 Launcher
@@ -128,7 +135,7 @@ fun ChatScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(34.dp)
                                 .clip(CircleShape)
                                 .background(BrandPrimary.copy(alpha = 0.15f)),
                             contentAlignment = Alignment.Center
@@ -137,13 +144,13 @@ fun ChatScreen(
                                 Icons.Default.AutoAwesome,
                                 contentDescription = null,
                                 tint = BrandPrimary,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text("AI 财务顾问 (MiMo/多模态)", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                            Text("支持图文识别、语音交互及账本透视", fontSize = 11.sp, color = BrandPrimary)
+                            Text("支持图文识别、语音交互及 Markdown 透视", fontSize = 11.sp, color = BrandPrimary)
                         }
                     }
                 },
@@ -156,6 +163,7 @@ fun ChatScreen(
                     .background(Color.White)
                     .navigationBarsPadding()
                     .imePadding()
+                    .animateContentSize()
             ) {
                 // 快捷提问胶囊
                 Row(
@@ -185,42 +193,48 @@ fun ChatScreen(
                 }
 
                 // 待发送图片缩略图预览栏
-                if (pendingImageBitmap != null) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = BackgroundLight)
-                    ) {
-                        Row(
+                AnimatedVisibility(
+                    visible = pendingImageBitmap != null,
+                    enter = fadeIn(),
+                    exit = fadeOut()
+                ) {
+                    if (pendingImageBitmap != null) {
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = BackgroundLight)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Image(
-                                    bitmap = pendingImageBitmap!!.asImageBitmap(),
-                                    contentDescription = "待发送小票",
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(RoundedCornerShape(8.dp)),
-                                    contentScale = ContentScale.Crop
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text("已选发票/账单小票图片", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                    Text("点击发送将连同问题一并提交给 MiMo 视觉分析", fontSize = 11.sp, color = TextSecondary)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Image(
+                                        bitmap = pendingImageBitmap!!.asImageBitmap(),
+                                        contentDescription = "待发送小票",
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("已选发票/账单小票图片", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                        Text("点击发送将连同问题一并提交给 MiMo 视觉分析", fontSize = 11.sp, color = TextSecondary)
+                                    }
                                 }
-                            }
-                            IconButton(onClick = {
-                                pendingImageUri = null
-                                pendingImageBitmap = null
-                                pendingImageBase64 = null
-                            }) {
-                                Icon(Icons.Default.Close, contentDescription = "取消选择", tint = ExpenseRed)
+                                IconButton(onClick = {
+                                    pendingImageUri = null
+                                    pendingImageBitmap = null
+                                    pendingImageBase64 = null
+                                }) {
+                                    Icon(Icons.Default.Close, contentDescription = "取消选择", tint = ExpenseRed)
+                                }
                             }
                         }
                     }
@@ -331,10 +345,10 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            items(messages) { message ->
+            items(messages, key = { it.id }) { message ->
                 ChatMessageBubble(
                     message = message,
                     isSpeaking = currentlySpeakingText == message.text,
@@ -344,29 +358,55 @@ fun ChatScreen(
 
             if (isLoading) {
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Start
-                    ) {
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color.White)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = BrandPrimary
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text("AI 正在深度思考/多模态图像理解中...", fontSize = 13.sp, color = TextSecondary)
-                            }
-                        }
-                    }
+                    AiThinkingCard()
                 }
+            }
+        }
+    }
+}
+
+/**
+ * 丝滑脉冲思考动效卡片
+ */
+@Composable
+private fun AiThinkingCard() {
+    val infiniteTransition = rememberInfiniteTransition(label = "thinking_anim")
+    val alphaAnim by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start
+    ) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(BrandPrimary.copy(alpha = alphaAnim))
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    "AI 正在深度思考 / 多模态图像解析中...",
+                    fontSize = 13.sp,
+                    color = TextSecondary,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
@@ -393,17 +433,23 @@ private fun ChatMessageBubble(
     ) {
         Card(
             shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
-                bottomStart = if (isUser) 16.dp else 4.dp,
-                bottomEnd = if (isUser) 4.dp else 16.dp
+                topStart = 18.dp,
+                topEnd = 18.dp,
+                bottomStart = if (isUser) 18.dp else 4.dp,
+                bottomEnd = if (isUser) 4.dp else 18.dp
             ),
             colors = CardDefaults.cardColors(
                 containerColor = if (isUser) BrandPrimary else Color.White
             ),
-            modifier = Modifier.widthIn(max = 310.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = if (isUser) 1.dp else 2.dp),
+            modifier = Modifier
+                .then(
+                    if (isUser) Modifier.widthIn(max = 300.dp)
+                    else Modifier.fillMaxWidth(0.95f) // AI 消息留出更宽空间，以便优雅展示表格与报告
+                )
+                .animateContentSize()
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(modifier = Modifier.padding(14.dp)) {
                 // 如果消息带有小票或图片附件，先渲染缩略图
                 if (imageBitmap != null) {
                     Image(
@@ -411,52 +457,61 @@ private fun ChatMessageBubble(
                         contentDescription = "账单图片",
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 200.dp)
-                            .clip(RoundedCornerShape(8.dp)),
+                            .heightIn(max = 220.dp)
+                            .clip(RoundedCornerShape(10.dp)),
                         contentScale = ContentScale.Crop
                     )
                     if (message.text.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                     }
                 }
 
+                // 核心渲染区：用户文本直接渲染，AI 消息使用 MarkdownView 渲染
                 if (message.text.isNotBlank()) {
-                    Text(
-                        text = message.text,
-                        color = if (isUser) Color.White else TextPrimary,
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp
-                    )
+                    if (isUser) {
+                        Text(
+                            text = message.text,
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            lineHeight = 22.sp
+                        )
+                    } else {
+                        MarkdownView(
+                            content = message.text,
+                            textColor = TextPrimary
+                        )
+                    }
                 }
 
                 // AI 回复附带语音播放按钮
                 if (!isUser && message.text.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isSpeaking) BrandPrimary.copy(alpha = 0.15f) else BackgroundLight,
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isSpeaking) BrandPrimary.copy(alpha = 0.15f) else Color(0xFFF1F5F9),
                             modifier = Modifier.clickable { onSpeakText() }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
                                     imageVector = if (isSpeaking) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                                     contentDescription = if (isSpeaking) "停止朗读" else "语音朗读",
                                     tint = if (isSpeaking) ExpenseRed else BrandPrimary,
-                                    modifier = Modifier.size(14.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = if (isSpeaking) "停止" else "朗读",
+                                    text = if (isSpeaking) "停止朗读" else "语音朗读",
                                     fontSize = 11.sp,
-                                    color = if (isSpeaking) ExpenseRed else BrandPrimary
+                                    color = if (isSpeaking) ExpenseRed else BrandPrimary,
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
