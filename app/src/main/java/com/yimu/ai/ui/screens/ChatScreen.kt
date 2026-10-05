@@ -503,7 +503,7 @@ private fun ChatMessageBubble(
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Bolt, contentDescription = null, tint = BrandPrimary, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = BrandPrimary, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("AI 记账快捷入库确认", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF166534))
                             }
@@ -538,7 +538,7 @@ private fun ChatMessageBubble(
                                     colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text("一键确认保存至一木账本", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                 }
@@ -575,7 +575,7 @@ private fun ChatMessageBubble(
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.ChangeCircle, contentDescription = null, tint = Color(0xFF4F46E5), modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF4F46E5), modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("AI 账单重新分类确认", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF3730A3))
                             }
@@ -597,7 +597,7 @@ private fun ChatMessageBubble(
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4F46E5)),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Icon(Icons.Default.Done, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text("确认修改并同步账本数据库", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                 }

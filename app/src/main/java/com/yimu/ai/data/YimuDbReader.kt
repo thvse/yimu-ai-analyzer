@@ -584,7 +584,7 @@ class YimuDbReader(private val dbFile: File) {
             if (rowId != -1L && assetId > 0) {
                 val isInc = isIncomeCategory(parentCategoryId, "", "")
                 val delta = if (isInc) cost else -cost
-                db.execSQL("UPDATE asset SET assetnumber = assetnumber + ?, updatetime = ? WHERE assetid = ?", arrayOf<Any>(delta, timestamp, assetId))
+                db.execSQL("UPDATE asset SET assetnumber = assetnumber + $delta, updatetime = $timestamp WHERE assetid = $assetId")
             }
             newId
         } catch (e: Exception) {
@@ -602,9 +602,13 @@ class YimuDbReader(private val dbFile: File) {
         val db = openDb()
         return try {
             val now = System.currentTimeMillis()
-            val sql = "UPDATE bill SET parentcategoryid = ?, childcategoryid = ?, updatetime = ? WHERE id = ?"
-            db.execSQL(sql, arrayOf<Any>(parentCategoryId, childCategoryId, now, billId))
-            true
+            val values = android.content.ContentValues().apply {
+                put("parentcategoryid", parentCategoryId)
+                put("childcategoryid", childCategoryId)
+                put("updatetime", now)
+            }
+            val rows = db.update("bill", values, "id = ?", arrayOf(billId.toString()))
+            rows > 0
         } catch (e: Exception) {
             e.printStackTrace()
             false
@@ -619,9 +623,13 @@ class YimuDbReader(private val dbFile: File) {
     fun deleteBill(billId: Long): Boolean {
         val db = openDb()
         return try {
-            val sql = "UPDATE bill SET delete_lpcolumn = 1, updatetime = ? WHERE id = ?"
-            db.execSQL(sql, arrayOf<Any>(System.currentTimeMillis(), billId))
-            true
+            val now = System.currentTimeMillis()
+            val values = android.content.ContentValues().apply {
+                put("delete_lpcolumn", 1)
+                put("updatetime", now)
+            }
+            val rows = db.update("bill", values, "id = ?", arrayOf(billId.toString()))
+            rows > 0
         } catch (e: Exception) {
             e.printStackTrace()
             false
