@@ -5,10 +5,8 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,11 +26,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yimu.ai.data.AssetItem
-import com.yimu.ai.data.AssetSummary
-import com.yimu.ai.data.BillItem
-import com.yimu.ai.data.CategoryExpense
-import com.yimu.ai.data.SpendingSummary
+import com.yimu.ai.data.*
 import com.yimu.ai.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,11 +38,15 @@ fun HomeScreen(
     onRefresh: () -> Unit,
     onPickBackupFile: () -> Unit,
     onNavigateToChat: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onUpdateBillCategory: (billId: Long, parentCategoryId: Long, childCategoryId: Long) -> Unit = { _, _, _ -> }
 ) {
-    var selectedCategoryTab by remember { mutableIntStateOf(0) } // 0: 支出分类, 1: 收入分类
-    var showAllCategories by remember { mutableStateOf(false) }
+    var selectedCategoryTab by remember { mutableIntStateOf(0) } // 0: 支出透视, 1: 收入透视, 2: 一木全部分类(10大类/66子类)
     var selectedBillFilter by remember { mutableIntStateOf(0) } // 0: 全部, 1: 支出, 2: 收入, 3: 转账
+
+    // 重新分类弹窗状态
+    var billToReclassify by remember { mutableStateOf<BillItem?>(null) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Scaffold(
         topBar = {
@@ -78,7 +76,7 @@ fun HomeScreen(
                                 color = TextPrimary
                             )
                             Text(
-                                "多维分类透视 · 资产负债看板",
+                                "多维分类透视 · 智能记账交互",
                                 fontSize = 11.sp,
                                 color = TextSecondary
                             )
@@ -138,7 +136,7 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "支持自动检测一木记账的备份包，或手动选取手机中的 Custom.db / zip 备份包完成毫秒级本地解密与透视。",
+                            "支持自动检测一木记账的备份包，或手动挑选手机中的 Custom.db / zip 备份包完成本地秒级解密与透视。",
                             fontSize = 13.sp,
                             color = TextSecondary,
                             lineHeight = 20.sp
@@ -172,8 +170,8 @@ fun HomeScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 当前所读取的备份文件状态栏
-                item {
+                // 1. 当前所读取的备份文件状态栏
+                item(key = "backup_status") {
                     Card(
                         modifier = Modifier.fillMaxWidth().animateContentSize(),
                         shape = RoundedCornerShape(14.dp),
@@ -207,7 +205,7 @@ fun HomeScreen(
                                 if (summary.backupFileModified.isNotBlank()) {
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "备份时间: ${summary.backupFileModified}",
+                                        text = "修改时间: ${summary.backupFileModified}",
                                         fontSize = 11.sp,
                                         color = TextSecondary
                                     )
@@ -225,47 +223,170 @@ fun HomeScreen(
                     }
                 }
 
-                // 1. 资产与净资产总览卡片 (黑金商务卡)
+                // 2. 核心收支四宫格质感卡片
+                item(key = "metric_cards") {
+                    LedgerMetricsGrid(summary = summary)
+                }
+
+                // 3. 资产与净资产总览卡片 (黑金商务卡)
                 summary.assetSummary?.let { assets ->
-                    item {
+                    item(key = "net_worth_card") {
                         NetWorthCard(assets = assets, onNavigateToChat = onNavigateToChat)
                     }
 
                     if (assets.accounts.isNotEmpty()) {
-                        item {
+                        item(key = "asset_accounts_card") {
                             AccountAssetsList(assets = assets)
                         }
                     }
                 }
 
-                // 2. 日常收支多维仪表盘
-                item {
-                    SpendingOverviewCard(summary = summary)
-                }
-
-                // 3. 分类全景深度透视中心 (支出 vs 收入)
-                item {
+                // 4. 分类全景深度透视中心 (支出 vs 收入 vs 全部分类 10大类/66子类)
+                item(key = "category_section") {
                     CategoryAnalyticsSection(
                         summary = summary,
                         selectedTab = selectedCategoryTab,
-                        onTabChanged = { selectedCategoryTab = it },
-                        showAll = showAllCategories,
-                        onToggleShowAll = { showAllCategories = !showAllCategories }
+                        onTabChanged = { selectedCategoryTab = it }
                     )
                 }
 
-                // 4. 近期账单流水记录 (可切换 全部/支出/收入/转账)
-                item {
+                // 5. 近期账单流水记录 (可切换 全部/支出/收入/转账，支持一键改分类)
+                item(key = "bills_section") {
                     BillsTimelineSection(
                         recentBills = recentBills,
                         selectedFilter = selectedBillFilter,
                         onFilterChanged = { selectedBillFilter = it },
-                        onNavigateToChat = onNavigateToChat
+                        onReclassifyBill = { bill -> billToReclassify = bill }
                     )
                 }
 
-                item {
+                item(key = "bottom_space") {
                     Spacer(modifier = Modifier.height(24.dp))
+                }
+            }
+        }
+    }
+
+    // 重新分类底部弹窗
+    if (billToReclassify != null && summary != null) {
+        ModalBottomSheet(
+            onDismissRequest = { billToReclassify = null },
+            sheetState = sheetState,
+            containerColor = Color.White
+        ) {
+            CategoryPickerBottomSheetContent(
+                bill = billToReclassify!!,
+                allCategories = summary.allCategories,
+                onSelectCategory = { parentId, childId ->
+                    onUpdateBillCategory(billToReclassify!!.id, parentId, childId)
+                    billToReclassify = null
+                },
+                onDismiss = { billToReclassify = null }
+            )
+        }
+    }
+}
+
+/**
+ * 现代金融四宫格收支指标卡片
+ */
+@Composable
+private fun LedgerMetricsGrid(summary: SpendingSummary) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // 总支出卡片
+            Card(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFEE2E2))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFEF4444))
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("本期总支出", fontSize = 12.sp, color = Color(0xFF991B1B), fontWeight = FontWeight.Medium)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "¥%.2f".format(summary.totalExpense),
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF991B1B)
+                    )
+                }
+            }
+
+            // 总收入卡片
+            Card(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFDCFCE7))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF10B981))
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("本期总收入", fontSize = 12.sp, color = Color(0xFF166534), fontWeight = FontWeight.Medium)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "¥%.2f".format(summary.totalIncome),
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF166534)
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // 收支结余卡片
+            Card(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text("收支结余", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "¥%.2f".format(summary.balance),
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (summary.balance >= 0) Color(0xFF0F172A) else Color(0xFFDC2626)
+                    )
+                }
+            }
+
+            // 流水笔数卡片
+            Card(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text("累计记账笔数", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "${summary.billCount} 笔",
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = BrandPrimary
+                    )
                 }
             }
         }
@@ -323,7 +444,7 @@ private fun NetWorthCard(
                 ) {
                     Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("AI深度诊断", fontSize = 12.sp)
+                    Text("AI智能记账", fontSize = 12.sp)
                 }
             }
 
@@ -489,87 +610,14 @@ private fun AccountBalanceRow(account: AssetItem) {
 }
 
 /**
- * 核心收支概览卡片
- */
-@Composable
-private fun SpendingOverviewCard(summary: SpendingSummary) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            Text(
-                "收支核心数据",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            )
-            Spacer(modifier = Modifier.height(14.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text("总支出", color = TextSecondary, fontSize = 12.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "¥%.2f".format(summary.totalExpense),
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                }
-                Column {
-                    Text("总收入", color = TextSecondary, fontSize = 12.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "¥%.2f".format(summary.totalIncome),
-                        color = IncomeGreen,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                }
-                Column {
-                    Text("收支结余", color = TextSecondary, fontSize = 12.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "¥%.2f".format(summary.balance),
-                        color = if (summary.balance >= 0) TextPrimary else ExpenseRed,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                }
-                Column {
-                    Text("记账笔数", color = TextSecondary, fontSize = 12.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "${summary.billCount} 笔",
-                        color = BrandPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * 分类全景透视卡片 (支持支出与收入切换、进度条与详细排行榜)
+ * 分类全景透视卡片 (支持支出、收入、以及一木记账 10 大分类 66 子分类全景矩阵)
  */
 @Composable
 private fun CategoryAnalyticsSection(
     summary: SpendingSummary,
     selectedTab: Int,
-    onTabChanged: (Int) -> Unit,
-    showAll: Boolean,
-    onToggleShowAll: () -> Unit
+    onTabChanged: (Int) -> Unit
 ) {
-    val activeRankings = if (selectedTab == 0) summary.categoryRanking else summary.incomeRanking
-    val totalAmount = if (selectedTab == 0) summary.totalExpense else summary.totalIncome
-
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         shape = RoundedCornerShape(18.dp),
@@ -577,7 +625,7 @@ private fun CategoryAnalyticsSection(
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
-            // 顶栏 Tab 切换 (支出分类 vs 收入分类)
+            // 顶栏 Tab 切换 (支出透视 / 收入透视 / 一木全部分类)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -598,75 +646,82 @@ private fun CategoryAnalyticsSection(
                         color = TextPrimary
                     )
                 }
+            }
 
-                // 支出/收入切换按钮组
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFFF1F5F9)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 三维 Segmented Control
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFFF1F5F9)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(3.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    Row(modifier = Modifier.padding(3.dp)) {
-                        TabPill(
-                            label = "支出 (${summary.categoryRanking.size})",
-                            isSelected = selectedTab == 0,
-                            onClick = { onTabChanged(0) }
-                        )
-                        TabPill(
-                            label = "收入 (${summary.incomeRanking.size})",
-                            isSelected = selectedTab == 1,
-                            onClick = { onTabChanged(1) }
-                        )
-                    }
+                    TabPill(
+                        label = "支出 (${summary.categoryRanking.size})",
+                        isSelected = selectedTab == 0,
+                        onClick = { onTabChanged(0) }
+                    )
+                    TabPill(
+                        label = "收入 (${summary.incomeRanking.size})",
+                        isSelected = selectedTab == 1,
+                        onClick = { onTabChanged(1) }
+                    )
+                    TabPill(
+                        label = "全部系统分类 (${summary.allCategories.size}大类)",
+                        isSelected = selectedTab == 2,
+                        onClick = { onTabChanged(2) }
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            if (activeRankings.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 20.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        if (selectedTab == 0) "暂无支出分类数据" else "暂无收入分类数据",
-                        fontSize = 13.sp,
-                        color = TextSecondary
-                    )
-                }
-            } else {
-                // 1. 多色块比例进度条
-                MultiColorProportionBar(rankings = activeRankings.take(5))
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 2. 分类排行榜明细列表
-                val displayList = if (showAll) activeRankings else activeRankings.take(4)
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    displayList.forEach { cat ->
-                        CategoryDetailRow(cat = cat, isIncomeTab = selectedTab == 1)
-                    }
-                }
-
-                // 展开全部/收起按钮
-                if (activeRankings.size > 4) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        TextButton(onClick = onToggleShowAll) {
-                            Text(
-                                if (showAll) "收起部分分类" else "展开全部分类 (共 ${activeRankings.size} 个)",
-                                fontSize = 13.sp,
-                                color = BrandPrimary,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Icon(
-                                if (showAll) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = null,
-                                tint = BrandPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
+            when (selectedTab) {
+                0 -> {
+                    // 支出透视
+                    if (summary.categoryRanking.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("暂无支出分类数据", fontSize = 13.sp, color = TextSecondary)
+                        }
+                    } else {
+                        MultiColorProportionBar(rankings = summary.categoryRanking.take(5))
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            summary.categoryRanking.forEach { cat ->
+                                CategoryDetailRow(cat = cat, isIncomeTab = false)
+                            }
                         }
                     }
+                }
+                1 -> {
+                    // 收入透视
+                    if (summary.incomeRanking.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("暂无收入分类数据", fontSize = 13.sp, color = TextSecondary)
+                        }
+                    } else {
+                        MultiColorProportionBar(rankings = summary.incomeRanking.take(5))
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            summary.incomeRanking.forEach { cat ->
+                                CategoryDetailRow(cat = cat, isIncomeTab = true)
+                            }
+                        }
+                    }
+                }
+                2 -> {
+                    // 一木记账所有分类展示矩阵 (10 大类 / 66 子类)
+                    AllCategoriesExplorer(categories = summary.allCategories)
                 }
             }
         }
@@ -676,7 +731,7 @@ private fun CategoryAnalyticsSection(
 @Composable
 private fun TabPill(label: String, isSelected: Boolean, onClick: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(10.dp),
         color = if (isSelected) BrandPrimary else Color.Transparent,
         modifier = Modifier.clickable { onClick() }
     ) {
@@ -685,8 +740,130 @@ private fun TabPill(label: String, isSelected: Boolean, onClick: () -> Unit) {
             fontSize = 12.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
             color = if (isSelected) Color.White else TextSecondary,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
         )
+    }
+}
+
+/**
+ * 完整分类知识库与全景矩阵视图 (展现所有 10 大类及 66 个子分类)
+ */
+@Composable
+private fun AllCategoriesExplorer(categories: List<FullCategory>) {
+    var expandedCatId by remember { mutableStateOf<Long?>(null) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "一木记账预设分类字典 (共 ${categories.size} 大类，包含完整子分类树)",
+            fontSize = 12.sp,
+            color = TextSecondary
+        )
+
+        categories.forEach { cat ->
+            val isExpanded = expandedCatId == cat.id
+            val catColor = getCategoryColor(cat.name)
+            val catIcon = getCategoryIcon(cat.name)
+
+            Card(
+                modifier = Modifier.fillMaxWidth().animateContentSize(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = if (isExpanded) Color(0xFFF8FAFC) else Color.White),
+                border = androidx.compose.foundation.BorderStroke(1.dp, if (isExpanded) catColor.copy(alpha = 0.5f) else Color(0xFFF1F5F9))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { expandedCatId = if (isExpanded) null else cat.id },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(catColor.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(catIcon, contentDescription = null, tint = catColor, modifier = Modifier.size(18.dp))
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(cat.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                                Text("${cat.children.size} 个二级子分类", fontSize = 11.sp, color = TextSecondary)
+                            }
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (cat.spentAmount > 0) {
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        "¥%.2f".format(cat.spentAmount),
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (cat.isIncome) IncomeGreen else TextPrimary
+                                    )
+                                    Text("${cat.billCount} 笔", fontSize = 10.sp, color = TextSecondary)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                            } else {
+                                Text("暂无支出", fontSize = 12.sp, color = Color(0xFF94A3B8))
+                                Spacer(modifier = Modifier.width(6.dp))
+                            }
+                            Icon(
+                                if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // 展开展示所有子分类
+                    if (isExpanded) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 0.8.dp)
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text("子分类明细：", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // 流式展示所有二级分类胶囊
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            cat.children.chunked(3).forEach { columnItems ->
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    columnItems.forEach { child ->
+                                        Surface(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (child.spentAmount > 0) catColor.copy(alpha = 0.12f) else Color(0xFFF1F5F9)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(child.name, fontSize = 12.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
+                                                if (child.spentAmount > 0) {
+                                                    Text("¥%.0f".format(child.spentAmount), fontSize = 10.sp, color = catColor, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -796,14 +973,14 @@ private fun CategoryDetailRow(cat: CategoryExpense, isIncomeTab: Boolean) {
 }
 
 /**
- * 近期流水记录区
+ * 近期流水记录区 (支持一键改分类)
  */
 @Composable
 private fun BillsTimelineSection(
     recentBills: List<BillItem>,
     selectedFilter: Int,
     onFilterChanged: (Int) -> Unit,
-    onNavigateToChat: () -> Unit
+    onReclassifyBill: (BillItem) -> Unit
 ) {
     val filteredBills = remember(recentBills, selectedFilter) {
         when (selectedFilter) {
@@ -873,8 +1050,8 @@ private fun BillsTimelineSection(
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    filteredBills.take(25).forEach { bill ->
-                        BillTimelineRow(bill)
+                    filteredBills.take(30).forEach { bill ->
+                        BillTimelineRow(bill = bill, onReclassify = { onReclassifyBill(bill) })
                     }
                 }
             }
@@ -883,7 +1060,7 @@ private fun BillsTimelineSection(
 }
 
 @Composable
-private fun BillTimelineRow(bill: BillItem) {
+private fun BillTimelineRow(bill: BillItem, onReclassify: () -> Unit) {
     val catColor = getCategoryColor(bill.parentCategoryName)
     val catIcon = getCategoryIcon(bill.parentCategoryName)
 
@@ -918,12 +1095,27 @@ private fun BillTimelineRow(bill: BillItem) {
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = if (bill.isTransfer) "内部转账" else "${bill.parentCategoryName} · ${bill.childCategoryName}",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            color = TextPrimary
-                        )
+                        // 可点击的分类标签 (点击直接改分类)
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = catColor.copy(alpha = 0.1f),
+                            modifier = Modifier.clickable { onReclassify() }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (bill.isTransfer) "内部转账" else "${bill.parentCategoryName} · ${bill.childCategoryName}",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 12.sp,
+                                    color = catColor
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Default.Edit, contentDescription = "修改分类", tint = catColor, modifier = Modifier.size(10.dp))
+                            }
+                        }
+
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(
                             shape = RoundedCornerShape(4.dp),
@@ -938,7 +1130,7 @@ private fun BillTimelineRow(bill: BillItem) {
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = bill.time,
@@ -971,6 +1163,137 @@ private fun BillTimelineRow(bill: BillItem) {
                 color = color
             )
         }
+    }
+}
+
+/**
+ * 重新分类 BottomSheet 内容
+ */
+@Composable
+private fun CategoryPickerBottomSheetContent(
+    bill: BillItem,
+    allCategories: List<FullCategory>,
+    onSelectCategory: (parentCategoryId: Long, childCategoryId: Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedParentId by remember { mutableStateOf(bill.parentCategoryId.takeIf { it != 0L } ?: (allCategories.firstOrNull()?.id ?: 1L)) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 10.dp)
+            .navigationBarsPadding()
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("修改账单分类", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    "账单金额: ¥%.2f | 当前: %s".format(bill.cost, "${bill.parentCategoryName}·${bill.childCategoryName}"),
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = "关闭", tint = TextSecondary)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+        Text("选择一级分类：", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // 一级分类水平滚动选择
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            allCategories.forEach { pCat ->
+                val isSelected = selectedParentId == pCat.id
+                val catColor = getCategoryColor(pCat.name)
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) catColor else Color(0xFFF1F5F9),
+                    modifier = Modifier.clickable { selectedParentId = pCat.id }
+                ) {
+                    Text(
+                        text = pCat.name,
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) Color.White else TextPrimary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("选择二级子分类并保存：", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        val currentParent = allCategories.find { it.id == selectedParentId }
+        val children = currentParent?.children ?: emptyList()
+
+        if (children.isEmpty()) {
+            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+                Text("该大类下暂无子分类，点击确认直接保存", fontSize = 12.sp, color = TextSecondary)
+            }
+            Button(
+                onClick = { onSelectCategory(selectedParentId, 0L) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("保存为「${currentParent?.name ?: ""}」")
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                children.chunked(3).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        rowItems.forEach { child ->
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        onSelectCategory(selectedParentId, child.id)
+                                    },
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFF8FAFC),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = child.name,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = TextPrimary
+                                    )
+                                }
+                            }
+                        }
+                        if (rowItems.size < 3) {
+                            repeat(3 - rowItems.size) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 

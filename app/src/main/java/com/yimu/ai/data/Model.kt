@@ -35,6 +35,23 @@ data class CategoryItem(
     val parentId: Long = 0
 )
 
+data class FullCategory(
+    val id: Long,
+    val name: String,
+    val isIncome: Boolean,
+    val spentAmount: Double = 0.0,
+    val billCount: Int = 0,
+    val children: List<ChildCategoryItem> = emptyList()
+)
+
+data class ChildCategoryItem(
+    val id: Long,
+    val parentId: Long,
+    val name: String,
+    val spentAmount: Double = 0.0,
+    val billCount: Int = 0
+)
+
 data class AssetItem(
     val id: Long,
     val name: String,
@@ -62,7 +79,8 @@ data class SpendingSummary(
     val assetSummary: AssetSummary? = null,
     val rawBillCount: Int = 0,
     val backupFileName: String = "",
-    val backupFileModified: String = ""
+    val backupFileModified: String = "",
+    val allCategories: List<FullCategory> = emptyList() // 全部系统与自定义分类全景
 )
 
 data class CategoryExpense(
@@ -74,11 +92,35 @@ data class CategoryExpense(
     val isIncome: Boolean = false
 )
 
+sealed class AiActionData {
+    data class AddBill(
+        val cost: Double,
+        val parentCategoryId: Long,
+        val parentCategoryName: String,
+        val childCategoryId: Long,
+        val childCategoryName: String,
+        val assetId: Long,
+        val assetName: String,
+        val remark: String,
+        val time: String
+    ) : AiActionData()
+
+    data class UpdateCategory(
+        val billId: Long,
+        val parentCategoryId: Long,
+        val parentCategoryName: String,
+        val childCategoryId: Long,
+        val childCategoryName: String
+    ) : AiActionData()
+}
+
 data class ChatMessage(
     val id: String = java.util.UUID.randomUUID().toString(),
     val text: String,
     val isUser: Boolean,
     val imageUri: String? = null, // 本地图片 URI
     val imageBase64: String? = null, // Base64 编码，用于传输给多模态大模型
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val action: AiActionData? = null,
+    var actionExecuted: Boolean = false
 )

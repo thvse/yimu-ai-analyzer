@@ -29,29 +29,33 @@ jobs:
       - name: Make Gradle Executable
         run: chmod +x gradlew
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Build APKs (Release & Debug)
+        run: ./gradlew assembleRelease assembleDebug --stacktrace
 
-      - name: Upload Debug APK Artifact
+      - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: YimuAiAnalyzer-Debug-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: YimuAiAnalyzer-APK
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
       - name: Create or Update GitHub Release
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.6.0
-          name: "一木AI账本助手 v1.6.0 (彻底整改：原生Markdown渲染+丝滑动效+全维分类透视)"
+          tag_name: v1.7.0
+          name: "一木AI账本助手 v1.7.0 (AI直接记账入库+重新分类+全部分类矩阵+现代极速性能)"
           body: |
-            ### 📱 一木AI账本助手 v1.6.0 (全面整改完善版)
-            - 📑 **优雅的原生 Markdown 渲染**：全面支持 AI 财务分析报告中的标题、对比表格、引用块(>)、分割线、列表及加粗语法，排版极其专业美观！
-            - 🎯 **彻底修正分类与收支判定**：重构一木记账收支归属算法（系统分类9=收入，1~8与99=支出），总支出、总收入、结余计算恢复 100% 准确，彻底告别“3笔流水总支出为0”！
-            - 📊 **全维分类透视仪表盘**：新增支出与收入双维度切换、彩色占比色条、各分类笔数与金额进度条、资产负债卡片平滑折叠！
-            - ⚡ **丝滑高帧率过渡动效**：底栏切换全面接入 AnimatedContent 水平平滑滑动与渐变，AI 思考状态呈现呼吸脉冲动效，告别生硬卡顿！
-            - 🔑 **签名保持完全一致**：使用固定 debug.keystore，可直接覆盖更新，无须卸载旧版！
-          files: app/build/outputs/apk/debug/app-debug.apk
+            ### 📱 一木AI账本助手 v1.7.0 (重磅智能交互升级)
+            - ⚡ **AI 对话直接新增记账入库**：对 AI 说“午饭微信付了25”、“记一笔支付宝18打车”，AI 智能提取字段并提供【一键写入一木账本】，直连写入 SQLite 数据库并同步扣减账户余额与更新结余！
+            - 🔄 **AI 对话与手动一键重新分类**：既可以对 AI 说“把刚才那笔红包改成餐饮”，也可以在首页账单列表上直接点击分类标签一键切换分类！
+            - 📁 **展示一木记账所有系统分类（10大类/66子类）**：新增“全部系统分类”全景矩阵，完整呈现食品餐饮、购物消费、居家生活、出行交通等全部 10 大分类和 66 个子分类树状层级及历史消费！
+            - 🚀 **现代 UI 与 120Hz 极速性能优化**：四宫格现代质感指标卡片，提供经过编译器优化的 Release 高性能原生版本，滑动与过渡极其丝滑！
+            - 🔑 **签名保持完全一致**：继续保持 fixedSign 固定签名，直接下载覆盖安装即可，数据与配置无缝保留！
+          files: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/debug/app-debug.apk
           draft: false
           prerelease: false

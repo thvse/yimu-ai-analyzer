@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.yimu.ai.data.AiActionData
 import com.yimu.ai.data.ChatMessage
 import com.yimu.ai.ui.components.MarkdownView
 import com.yimu.ai.ui.theme.*
@@ -53,7 +54,9 @@ fun ChatScreen(
     isLoading: Boolean,
     onSendMessage: (text: String, imageUri: String?, imageBase64: String?) -> Unit,
     onSpeakText: (String) -> Unit,
-    currentlySpeakingText: String?
+    currentlySpeakingText: String?,
+    onExecuteAddBill: (AiActionData.AddBill, ChatMessage) -> Unit = { _, _ -> },
+    onExecuteUpdateCategory: (AiActionData.UpdateCategory, ChatMessage) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     var inputText by remember { mutableStateOf("") }
@@ -63,14 +66,15 @@ fun ChatScreen(
     var pendingImageBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var pendingImageBase64 by remember { mutableStateOf<String?>(null) }
 
-    // 常用快捷提问
+    // 常用快捷提问与智能行动胶囊
     val suggestions = listOf(
+        "🍔 记一笔25元的午餐外卖",
+        "🚕 记一笔18元的打车支出",
+        "💰 记一笔8000元工资收入",
+        "🔄 把刚才那笔红包改成餐饮",
         "📊 深度诊断我当前的消费结构",
         "📸 帮我识别这张消费小票/账单",
-        "🍔 统计餐饮外卖一共花了多少？",
-        "💡 给出3个最有效的个性化省钱建议",
-        "⚠️ 排查近期异常或突发的大额支出",
-        "💳 负债与信用账户偿还建议"
+        "💡 给出3个最有效的个性化省钱建议"
     )
 
     // 相册选图 Launcher
@@ -110,7 +114,7 @@ fun ChatScreen(
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "请说出您的问题或账单分析要求...")
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "请说出您的问题或记账指令...")
             }
             try {
                 speechLauncher.launch(intent)
@@ -149,8 +153,8 @@ fun ChatScreen(
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
-                            Text("AI 财务顾问 (MiMo/多模态)", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                            Text("支持图文识别、语音交互及 Markdown 透视", fontSize = 11.sp, color = BrandPrimary)
+                            Text("AI 智能记账顾问", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                            Text("可自然语言记账 · 重分类 · 图文识别", fontSize = 11.sp, color = BrandPrimary)
                         }
                     }
                 },
@@ -165,7 +169,7 @@ fun ChatScreen(
                     .imePadding()
                     .animateContentSize()
             ) {
-                // 快捷提问胶囊
+                // 快捷提问与智能行动胶囊
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -294,7 +298,7 @@ fun ChatScreen(
                         value = inputText,
                         onValueChange = { inputText = it },
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("输入问题，或发张小票让我识别...", fontSize = 14.sp) },
+                        placeholder = { Text("说句话直接记账，如“午饭微信付了25”...", fontSize = 13.sp) },
                         shape = RoundedCornerShape(24.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             unfocusedContainerColor = BackgroundLight,
@@ -352,7 +356,9 @@ fun ChatScreen(
                 ChatMessageBubble(
                     message = message,
                     isSpeaking = currentlySpeakingText == message.text,
-                    onSpeakText = { onSpeakText(message.text) }
+                    onSpeakText = { onSpeakText(message.text) },
+                    onExecuteAddBill = { action -> onExecuteAddBill(action, message) },
+                    onExecuteUpdateCategory = { action -> onExecuteUpdateCategory(action, message) }
                 )
             }
 
@@ -402,7 +408,7 @@ private fun AiThinkingCard() {
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    "AI 正在深度思考 / 多模态图像解析中...",
+                    "AI 正在理解账务语义 / 执行记账推理中...",
                     fontSize = 13.sp,
                     color = TextSecondary,
                     fontWeight = FontWeight.Medium
@@ -416,7 +422,9 @@ private fun AiThinkingCard() {
 private fun ChatMessageBubble(
     message: ChatMessage,
     isSpeaking: Boolean,
-    onSpeakText: () -> Unit
+    onSpeakText: () -> Unit,
+    onExecuteAddBill: (AiActionData.AddBill) -> Unit,
+    onExecuteUpdateCategory: (AiActionData.UpdateCategory) -> Unit
 ) {
     val context = LocalContext.current
     val isUser = message.isUser
@@ -445,7 +453,7 @@ private fun ChatMessageBubble(
             modifier = Modifier
                 .then(
                     if (isUser) Modifier.widthIn(max = 300.dp)
-                    else Modifier.fillMaxWidth(0.95f) // AI 消息留出更宽空间，以便优雅展示表格与报告
+                    else Modifier.fillMaxWidth(0.96f) // AI 消息留出充裕空间展示表格与操作卡片
                 )
                 .animateContentSize()
         ) {
@@ -480,6 +488,137 @@ private fun ChatMessageBubble(
                             content = message.text,
                             textColor = TextPrimary
                         )
+                    }
+                }
+
+                // 核心交互：AI 新增记账行动确认卡片
+                if (message.action is AiActionData.AddBill) {
+                    val addAction = message.action
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF86EFAC))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Bolt, contentDescription = null, tint = BrandPrimary, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("AI 记账快捷入库确认", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF166534))
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("入账金额", fontSize = 12.sp, color = Color(0xFF4B5563))
+                                Text("¥%.2f".format(addAction.cost), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF166534))
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("记账分类", fontSize = 12.sp, color = Color(0xFF4B5563))
+                                Text("${addAction.parentCategoryName} · ${addAction.childCategoryName}", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("扣款账户", fontSize = 12.sp, color = Color(0xFF4B5563))
+                                Text(addAction.assetName, fontSize = 13.sp, color = TextPrimary)
+                            }
+                            if (addAction.remark.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("记账备注", fontSize = 12.sp, color = Color(0xFF4B5563))
+                                    Text(addAction.remark, fontSize = 13.sp, color = BrandPrimary)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            if (!message.actionExecuted) {
+                                Button(
+                                    onClick = { onExecuteAddBill(addAction) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("一键确认保存至一木账本", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFDCFCE7)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("已成功保存入库！账本已即时同步", fontSize = 12.sp, color = Color(0xFF166534), fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 核心交互：AI 重新分类行动确认卡片
+                if (message.action is AiActionData.UpdateCategory) {
+                    val updateAction = message.action
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFEEF2FF)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFA5B4FC))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.ChangeCircle, contentDescription = null, tint = Color(0xFF4F46E5), modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("AI 账单重新分类确认", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF3730A3))
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("将对应账单重新归类为：", fontSize = 12.sp, color = Color(0xFF4B5563))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "${updateAction.parentCategoryName} · ${updateAction.childCategoryName}",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF4F46E5)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            if (!message.actionExecuted) {
+                                Button(
+                                    onClick = { onExecuteUpdateCategory(updateAction) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4F46E5)),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Done, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("确认修改并同步账本数据库", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFE0E7FF)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4338CA), modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("账单分类已更新并已同步数据库", fontSize = 12.sp, color = Color(0xFF3730A3), fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

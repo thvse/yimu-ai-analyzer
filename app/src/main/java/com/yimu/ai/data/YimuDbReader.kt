@@ -428,6 +428,8 @@ class YimuDbReader(private val dbFile: File) {
                 )
             }
 
+        val allCats = getAllCategoriesWithStats()
+
         return SpendingSummary(
             totalExpense = totalExpense,
             totalIncome = totalIncome,
@@ -438,8 +440,159 @@ class YimuDbReader(private val dbFile: File) {
             assetSummary = assetSummary,
             rawBillCount = rawCount,
             backupFileName = backupName,
-            backupFileModified = backupModifiedTime
+            backupFileModified = backupModifiedTime,
+            allCategories = allCats
         )
+    }
+
+    /**
+     * 获取一木记账所有一级与二级分类树状列表及当前账本的消费统计
+     */
+    fun getAllCategoriesWithStats(): List<FullCategory> {
+        val db = openDb()
+        val list = mutableListOf<FullCategory>()
+        try {
+            // 1. 查询账单统计 (按一级和二级汇总)
+            val parentSpent = mutableMapOf<Long, Double>()
+            val parentCount = mutableMapOf<Long, Int>()
+            val childSpent = mutableMapOf<Long, Double>()
+            val childCount = mutableMapOf<Long, Int>()
+
+            val billCursor = db.rawQuery(
+                "SELECT cost, parentcategoryid, childcategoryid FROM bill WHERE delete_lpcolumn != 1 OR delete_lpcolumn IS NULL",
+                null
+            )
+            val costCol = billCursor.col("cost")
+            val pCol = billCursor.col("parentcategoryid")
+            val cCol = billCursor.col("childcategoryid")
+
+            while (billCursor.moveToNext()) {
+                val cost = if (costCol >= 0) billCursor.getDouble(costCol) else 0.0
+                val pId = if (pCol >= 0) billCursor.getLong(pCol) else 0L
+                val cId = if (cCol >= 0) billCursor.getLong(cCol) else 0L
+
+                parentSpent[pId] = (parentSpent[pId] ?: 0.0) + cost
+                parentCount[pId] = (parentCount[pId] ?: 0) + 1
+
+                childSpent[cId] = (childSpent[cId] ?: 0.0) + cost
+                childCount[cId] = (childCount[cId] ?: 0) + 1
+            }
+            billCursor.close()
+
+            // 2. 查询所有二级分类，按 parentCategoryId 分组
+            val childMap = mutableMapOf<Long, MutableList<ChildCategoryItem>>()
+            val childCursor = db.rawQuery(
+                "SELECT categoryid, parentcategoryid, categoryname FROM childcategory ORDER BY positionweight ASC, categoryid ASC",
+                null
+            )
+            val cidCol = childCursor.col("categoryid")
+            val cPidCol = childCursor.col("parentcategoryid")
+            val cNameCol = childCursor.col("categoryname")
+
+            while (childCursor.moveToNext()) {
+                val cid = if (cidCol >= 0) childCursor.getLong(cidCol) else 0L
+                val pid = if (cPidCol >= 0) childCursor.getLong(cPidCol) else 0L
+                val name = if (cNameCol >= 0) (childCursor.getString(cNameCol) ?: "") else ""
+
+                val cItem = ChildCategoryItem(
+                    id = cid,
+                    parentId = pid,
+                    name = name,
+                    spentAmount = childSpent[cid] ?: 0.0,
+                    billCount = childCount[cid] ?: 0
+                )
+                childMap.getOrPut(pid) { mutableListOf() }.add(cItem)
+            }
+            childCursor.close()
+
+            // 3. 查询所有一级分类
+            val parentCursor = db.rawQuery(
+                "SELECT categoryid, categoryname FROM parentcategory ORDER BY positionweight ASC, categoryid ASC",
+                null
+            )
+            val pidCol = parentCursor.col("categoryid")
+            val pNameCol = parentCursor.col("categoryname")
+
+            while (parentCursor.moveToNext()) {
+                val pid = if (pidCol >= 0) parentCursor.getLong(pidCol) else 0L
+                val name = if (pNameCol >= 0) (parentCursor.getString(pNameCol) ?: "") else ""
+                val isInc = isIncomeCategory(pid, name, "")
+
+                val children = childMap[pid] ?: emptyList()
+                list.add(
+                    FullCategory(
+                        id = pid,
+                        name = name,
+                        isIncome = isInc,
+                        spentAmount = parentSpent[pid] ?: 0.0,
+                        billCount = parentCount[pid] ?: 0,
+                        children = children
+                    )
+                )
+            }
+            parentCursor.close()
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            db.close()
+        }
+        return list
+    }
+
+    /**
+     * 向一木记账数据库写入/新增一笔记账流水
+     */
+    fun insertBill(
+        cost: Double,
+        parentCategoryId: Long,
+        childCategoryId: Long,
+        assetId: Long,
+        remark: String? = null,
+        timestamp: Long = System.currentTimeMillis(),
+        userId: Long = 1467948L
+    ): Long {
+        val db = openDb()
+        return try {
+            var maxId = 0L
+            val c = db.rawQuery("SELECT max(id), max(billid) FROM bill", null)
+            if (c.moveToFirst()) {
+                maxId = maxOf(c.getLong(0), c.getLong(1))
+            }
+            c.close()
+            val newId = if (maxId > 0) maxId + 1 else 1L
+
+            val values = android.content.ContentValues().apply {
+                put("id", newId)
+                put("billid", newId)
+                put("userid", userId)
+                put("bookid", 1L)
+                put("billtype", 1) // 1 = 手动记账
+                put("cost", cost)
+                put("parentcategoryid", parentCategoryId)
+                put("childcategoryid", childCategoryId)
+                put("assetid", assetId)
+                put("remark", remark ?: "")
+                put("time", timestamp)
+                put("recordtime", timestamp)
+                put("updatetime", timestamp)
+                put("delete_lpcolumn", 0)
+            }
+            val rowId = db.insert("bill", null, values)
+
+            // 同步调整账户余额
+            if (rowId != -1L && assetId > 0) {
+                val isInc = isIncomeCategory(parentCategoryId, "", "")
+                val delta = if (isInc) cost else -cost
+                db.execSQL("UPDATE asset SET assetnumber = assetnumber + ?, updatetime = ? WHERE assetid = ?", arrayOf<Any>(delta, timestamp, assetId))
+            }
+            newId
+        } catch (e: Exception) {
+            e.printStackTrace()
+            -1L
+        } finally {
+            db.close()
+        }
     }
 
     /**
@@ -448,8 +601,26 @@ class YimuDbReader(private val dbFile: File) {
     fun updateBillCategory(billId: Long, parentCategoryId: Long, childCategoryId: Long): Boolean {
         val db = openDb()
         return try {
-            val sql = "UPDATE bill SET parentcategoryid = ?, childcategoryid = ? WHERE id = ?"
-            db.execSQL(sql, arrayOf<Any>(parentCategoryId, childCategoryId, billId))
+            val now = System.currentTimeMillis()
+            val sql = "UPDATE bill SET parentcategoryid = ?, childcategoryid = ?, updatetime = ? WHERE id = ?"
+            db.execSQL(sql, arrayOf<Any>(parentCategoryId, childCategoryId, now, billId))
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        } finally {
+            db.close()
+        }
+    }
+
+    /**
+     * 软删除指定账单
+     */
+    fun deleteBill(billId: Long): Boolean {
+        val db = openDb()
+        return try {
+            val sql = "UPDATE bill SET delete_lpcolumn = 1, updatetime = ? WHERE id = ?"
+            db.execSQL(sql, arrayOf<Any>(System.currentTimeMillis(), billId))
             true
         } catch (e: Exception) {
             e.printStackTrace()

@@ -38,6 +38,7 @@ import androidx.lifecycle.lifecycleScope
 import com.yimu.ai.ai.AiChatClient
 import com.yimu.ai.ai.PromptEngine
 import com.yimu.ai.crypto.BackupDecryptor
+import com.yimu.ai.data.AiActionData
 import com.yimu.ai.data.BillItem
 import com.yimu.ai.data.ChatMessage
 import com.yimu.ai.data.SpendingSummary
@@ -47,6 +48,7 @@ import com.yimu.ai.ui.screens.HomeScreen
 import com.yimu.ai.ui.screens.SettingsScreen
 import com.yimu.ai.ui.theme.BrandPrimary
 import com.yimu.ai.ui.theme.YimuAiTheme
+import com.yimu.ai.utils.ActionParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -117,7 +119,7 @@ class MainActivity : ComponentActivity() {
                     }
                     startActivity(intent)
                 } catch (e: Exception) {
-                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
                     startActivity(intent)
                 }
             }
@@ -186,6 +188,17 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        fun reloadLedgerData(label: String? = null, modTime: String? = null) {
+            val reader = dbReader ?: return
+            val sum = reader.getMonthlySummary(
+                backupName = label ?: (summary?.backupFileName ?: ""),
+                backupModifiedTime = modTime ?: (summary?.backupFileModified ?: "")
+            )
+            val bills = reader.getBills(limit = 60)
+            summary = sum
+            recentBills = bills
+        }
+
         // 解密并读取指定或最新的备份文件
         fun doDecryptAndLoad(specificZip: File? = null, label: String? = null) {
             if (userId.isBlank()) {
@@ -217,24 +230,21 @@ class MainActivity : ComponentActivity() {
                     isDecrypting = false
                     decryptResult.onSuccess { extractedDb ->
                         dbReader = YimuDbReader(extractedDb)
-                        val sum = dbReader!!.getMonthlySummary(
-                            backupName = label ?: targetZip.name,
-                            backupModifiedTime = modTimeStr
-                        )
-                        val bills = dbReader!!.getBills(limit = 60)
-                        summary = sum
-                        recentBills = bills
-                        statusMessage = "解密成功！包含 ${sum.billCount} 笔流水，${sum.assetSummary?.accounts?.size ?: 0} 个账户"
-                        Toast.makeText(this@MainActivity, "同步成功: ${sum.billCount} 笔流水，${sum.assetSummary?.accounts?.size ?: 0} 个账户", Toast.LENGTH_SHORT).show()
+                        reloadLedgerData(label ?: targetZip.name, modTimeStr)
+                        val sum = summary
+                        val billCnt = sum?.billCount ?: 0
+                        val accCnt = sum?.assetSummary?.accounts?.size ?: 0
+                        statusMessage = "解密成功！包含 $billCnt 笔流水，$accCnt 个账户"
+                        Toast.makeText(this@MainActivity, "同步成功: $billCnt 笔流水，$accCnt 个账户", Toast.LENGTH_SHORT).show()
 
                         if (chatMessages.isEmpty()) {
-                            val assets = sum.assetSummary
+                            val assets = sum?.assetSummary
                             val assetDesc = if (assets != null && assets.accounts.isNotEmpty()) {
                                 "，已识别到 ${assets.accounts.size} 个账户（净资产 ¥%.2f，总资产 ¥%.2f，总负债 ¥%.2f）".format(assets.netAssets, assets.totalAssets, assets.totalLiabilities)
                             } else ""
                             chatMessages.add(
                                 ChatMessage(
-                                    text = "你好！我已经成功连接并解析了你的一木记账数据（共 ${sum.billCount} 笔流水$assetDesc）。你可以向我发送消费小票图片、使用语音输入，或咨询任何财务结构、负债优化与省钱建议！",
+                                    text = "你好！我已经成功连接并解析了你的一木记账数据（共 $billCnt 笔流水$assetDesc）。你可以直接说“午饭花了25”、“帮我记一笔打车18”，我会直接帮你记账入库；也可以让我帮你修改任何账单分类！",
                                     isUser = false
                                 )
                             )
@@ -244,6 +254,84 @@ class MainActivity : ComponentActivity() {
                         Toast.makeText(this@MainActivity, statusMessage, Toast.LENGTH_LONG).show()
                     }
                 }
+            }
+        }
+
+        // 执行 AI 记账入库动作
+        fun executeAddBill(action: AiActionData.AddBill, message: ChatMessage) {
+            val reader = dbReader
+            if (reader == null) {
+                Toast.makeText(this@MainActivity, "请先在首页加载账本数据库", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            val allCats = summary?.allCategories ?: reader.getAllCategoriesWithStats()
+            val matchedParent = allCats.find { it.name.contains(action.parentCategoryName) || action.parentCategoryName.contains(it.name) }
+                ?: allCats.find { it.name.contains("食品") || it.name.contains("餐饮") }
+                ?: allCats.firstOrNull()
+            val pId = matchedParent?.id ?: 7L
+
+            val matchedChild = matchedParent?.children?.find { it.name.contains(action.childCategoryName) || action.childCategoryName.contains(it.name) }
+                ?: matchedParent?.children?.firstOrNull()
+            val cId = matchedChild?.id ?: (pId * 100 + 1)
+
+            val accounts = summary?.assetSummary?.accounts ?: emptyList()
+            val matchedAsset = accounts.find { it.name.contains(action.assetName) || action.assetName.contains(it.name) }
+                ?: accounts.firstOrNull()
+            val assetId = matchedAsset?.id ?: (accounts.firstOrNull()?.id ?: 1L)
+
+            val newId = reader.insertBill(
+                cost = action.cost,
+                parentCategoryId = pId,
+                childCategoryId = cId,
+                assetId = assetId,
+                remark = action.remark,
+                userId = userId.toLongOrNull() ?: 1467948L
+            )
+
+            if (newId > 0) {
+                message.actionExecuted = true
+                reloadLedgerData()
+                Toast.makeText(this@MainActivity, "已成功写入一木账本！¥%.2f 已入账".format(action.cost), Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@MainActivity, "写入数据库失败，请检查数据库权限", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        // 执行 AI 重新分类动作
+        fun executeUpdateCategory(action: AiActionData.UpdateCategory, message: ChatMessage) {
+            val reader = dbReader
+            if (reader == null) {
+                Toast.makeText(this@MainActivity, "请先在首页加载账本数据库", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            val allCats = summary?.allCategories ?: reader.getAllCategoriesWithStats()
+            val matchedParent = allCats.find { it.name.contains(action.parentCategoryName) || action.parentCategoryName.contains(it.name) }
+                ?: allCats.firstOrNull()
+            val pId = matchedParent?.id ?: 7L
+
+            val matchedChild = matchedParent?.children?.find { it.name.contains(action.childCategoryName) || action.childCategoryName.contains(it.name) }
+                ?: matchedParent?.children?.firstOrNull()
+            val cId = matchedChild?.id ?: (pId * 100 + 1)
+
+            val success = reader.updateBillCategory(action.billId, pId, cId)
+            if (success) {
+                message.actionExecuted = true
+                reloadLedgerData()
+                Toast.makeText(this@MainActivity, "已重新分类为「${matchedParent?.name} · ${matchedChild?.name}」！", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@MainActivity, "更新账单分类失败", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // 手动直接修改账单分类
+        fun updateBillCategoryDirect(billId: Long, parentId: Long, childId: Long) {
+            val reader = dbReader ?: return
+            val success = reader.updateBillCategory(billId, parentId, childId)
+            if (success) {
+                reloadLedgerData()
+                Toast.makeText(this@MainActivity, "账单分类已更新！", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -340,13 +428,18 @@ class MainActivity : ComponentActivity() {
                             onRefresh = { doDecryptAndLoad() },
                             onPickBackupFile = { launchFilePicker() },
                             onNavigateToChat = { selectedTab = 1 },
-                            onNavigateToSettings = { selectedTab = 2 }
+                            onNavigateToSettings = { selectedTab = 2 },
+                            onUpdateBillCategory = { billId, pId, cId ->
+                                updateBillCategoryDirect(billId, pId, cId)
+                            }
                         )
                         1 -> ChatScreen(
                             messages = chatMessages,
                             isLoading = isAiThinking,
                             currentlySpeakingText = currentlySpeakingText,
                             onSpeakText = { text -> speakOrStop(text) },
+                            onExecuteAddBill = { action, msg -> executeAddBill(action, msg) },
+                            onExecuteUpdateCategory = { action, msg -> executeUpdateCategory(action, msg) },
                             onSendMessage = { query, imgUri, imgB64 ->
                                 chatMessages.add(
                                     ChatMessage(
@@ -365,9 +458,10 @@ class MainActivity : ComponentActivity() {
 
                                     isAiThinking = false
                                     result.onSuccess { reply ->
-                                        chatMessages.add(ChatMessage(text = reply, isUser = false))
+                                        val (cleanedText, action) = ActionParser.extractAction(reply)
+                                        chatMessages.add(ChatMessage(text = cleanedText, isUser = false, action = action))
                                         if (autoVoice) {
-                                            speakOrStop(reply)
+                                            speakOrStop(cleanedText)
                                         }
                                     }.onFailure { error ->
                                         chatMessages.add(
