@@ -6,7 +6,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -17,6 +19,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yimu.ai.data.AssetItem
+import com.yimu.ai.data.AssetSummary
 import com.yimu.ai.data.BillItem
 import com.yimu.ai.data.CategoryExpense
 import com.yimu.ai.data.SpendingSummary
@@ -100,10 +104,95 @@ fun HomeScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                item {
-                    OverviewStatCard(summary = summary, onNavigateToChat = onNavigateToChat)
+                // 1. 资产与净资产总览卡片（首要展示）
+                summary.assetSummary?.let { assets ->
+                    item {
+                        NetWorthCard(assets = assets, onNavigateToChat = onNavigateToChat)
+                    }
+
+                    if (assets.accounts.isNotEmpty()) {
+                        item {
+                            Text(
+                                "账户资产分布 (${assets.accounts.size}个账户)",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                        }
+
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    assets.accounts.forEach { account ->
+                                        AccountBalanceRow(account)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
+                // 2. 收支流水看板
+                item {
+                    Text(
+                        "日常收支概览",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                }
+
+                item {
+                    SpendingOverviewCard(summary = summary)
+                }
+
+                // 3. 当暂无流水时的温馨提示引导
+                if (summary.billCount == 0) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F5F9))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = BrandPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        "当前备份包暂无收支流水",
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 14.sp,
+                                        color = TextPrimary
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        "当前解密成功识别了 7 个资产账户。如果您在一木记账中其他账本记过流水，请在一木记账中确认当前账本并重新导出备份；您也可以直接点击底部【AI顾问】向小米大模型咨询资产负债结构或发送小票进行智能识别记账！",
+                                        fontSize = 12.sp,
+                                        color = TextSecondary,
+                                        lineHeight = 18.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. 分类支出排行榜
                 if (summary.categoryRanking.isNotEmpty()) {
                     item {
                         Text(
@@ -132,17 +221,20 @@ fun HomeScreen(
                     }
                 }
 
-                item {
-                    Text(
-                        "近期账单记录 (${recentBills.size}笔)",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                }
+                // 5. 近期账单流水
+                if (recentBills.isNotEmpty()) {
+                    item {
+                        Text(
+                            "近期账单记录 (${recentBills.size}笔)",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                    }
 
-                items(recentBills.take(20)) { bill ->
-                    BillRow(bill)
+                    items(recentBills.take(20)) { bill ->
+                        BillRow(bill)
+                    }
                 }
 
                 item {
@@ -154,14 +246,14 @@ fun HomeScreen(
 }
 
 @Composable
-private fun OverviewStatCard(
-    summary: SpendingSummary,
+private fun NetWorthCard(
+    assets: AssetSummary,
     onNavigateToChat: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A))
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(
@@ -169,11 +261,20 @@ private fun OverviewStatCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "账本总支出",
-                    color = Color(0xFF94A3B8),
-                    fontSize = 14.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.AccountBalanceWallet,
+                        contentDescription = null,
+                        tint = BrandPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        "个人净资产 (净值)",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 14.sp
+                    )
+                }
                 Button(
                     onClick = onNavigateToChat,
                     colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
@@ -182,14 +283,14 @@ private fun OverviewStatCard(
                 ) {
                     Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("AI深度诊断", fontSize = 12.sp)
+                    Text("AI财务诊断", fontSize = 12.sp)
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
-                "¥%.2f".format(summary.totalExpense),
-                color = Color.White,
+                "¥%.2f".format(assets.netAssets),
+                color = if (assets.netAssets >= 0) Color.White else Color(0xFFF87171),
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -203,35 +304,115 @@ private fun OverviewStatCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
-                    Text("总收入", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("总资产 (资金/投资)", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "¥%.2f".format(summary.totalIncome),
-                        color = IncomeGreen,
+                        "¥%.2f".format(assets.totalAssets),
+                        color = Color(0xFF4ADE80),
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 16.sp
                     )
                 }
                 Column {
-                    Text("账面结余", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("总负债 (信贷/借款)", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "¥%.2f".format(summary.balance),
-                        color = if (summary.balance >= 0) Color.White else ExpenseRed,
+                        "¥%.2f".format(assets.totalLiabilities),
+                        color = Color(0xFFF87171),
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 16.sp
                     )
                 }
                 Column {
-                    Text("记录笔数", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("账户总数", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "${summary.billCount} 笔",
+                        "${assets.accounts.size} 个",
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 16.sp
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountBalanceRow(account: AssetItem) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text(
+                text = account.name,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary
+            )
+            if (account.groupName.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = account.groupName,
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+            }
+        }
+
+        Text(
+            text = "¥%.2f".format(account.balance),
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (account.isDebt) Color(0xFFDC2626) else Color(0xFF16A34A)
+        )
+    }
+}
+
+@Composable
+private fun SpendingOverviewCard(summary: SpendingSummary) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text("本期总支出", color = TextSecondary, fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "¥%.2f".format(summary.totalExpense),
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            }
+            Column {
+                Text("本期总收入", color = TextSecondary, fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "¥%.2f".format(summary.totalIncome),
+                    color = IncomeGreen,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            }
+            Column {
+                Text("收支结余", color = TextSecondary, fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "¥%.2f".format(summary.balance),
+                    color = if (summary.balance >= 0) TextPrimary else ExpenseRed,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
             }
         }
     }

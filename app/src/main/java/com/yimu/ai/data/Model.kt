@@ -27,7 +27,18 @@ data class CategoryItem(
 data class AssetItem(
     val id: Long,
     val name: String,
-    val balance: Double
+    val balance: Double,
+    val groupName: String = "",
+    val assetType: Int = 1 // 1: 资金, 2: 负债/信用, 4: 投资
+) {
+    val isDebt: Boolean get() = balance < 0 || assetType == 2
+}
+
+data class AssetSummary(
+    val totalAssets: Double,
+    val totalLiabilities: Double,
+    val netAssets: Double,
+    val accounts: List<AssetItem>
 )
 
 data class SpendingSummary(
@@ -35,7 +46,8 @@ data class SpendingSummary(
     val totalIncome: Double,
     val balance: Double,
     val billCount: Int,
-    val categoryRanking: List<CategoryExpense>
+    val categoryRanking: List<CategoryExpense>,
+    val assetSummary: AssetSummary? = null
 )
 
 data class CategoryExpense(

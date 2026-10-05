@@ -208,9 +208,13 @@ class MainActivity : ComponentActivity() {
                         recentBills = bills
 
                         if (chatMessages.isEmpty()) {
+                            val assets = sum.assetSummary
+                            val assetDesc = if (assets != null && assets.accounts.isNotEmpty()) {
+                                "，已识别到 ${assets.accounts.size} 个账户（净资产 ¥%.2f，总资产 ¥%.2f，总负债 ¥%.2f）".format(assets.netAssets, assets.totalAssets, assets.totalLiabilities)
+                            } else ""
                             chatMessages.add(
                                 ChatMessage(
-                                    text = "你好！我已经成功连接并解析了你的一木账本（共 ${sum.billCount} 笔记录，总支出 ¥%.2f）。你可以向我发送消费小票图片、使用语音输入，或咨询任何开销结构与省钱建议！".format(sum.totalExpense),
+                                    text = "你好！我已经成功连接并解析了你的一木记账数据（共 ${sum.billCount} 笔流水$assetDesc）。你可以向我发送消费小票图片、使用语音输入，或咨询任何财务结构、负债优化与省钱建议！",
                                     isUser = false
                                 )
                             )

@@ -2,8 +2,13 @@ package com.yimu.ai.data
 
 import android.database.sqlite.SQLiteDatabase
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class YimuDbReader(private val dbFile: File) {
+
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
 
     private fun openDb(): SQLiteDatabase {
         if (!dbFile.exists()) {
@@ -89,9 +94,67 @@ class YimuDbReader(private val dbFile: File) {
     }
 
     /**
+     * 获取资产与负债结构摘要
+     */
+    fun getAssetSummary(): AssetSummary {
+        val db = openDb()
+        val accounts = mutableListOf<AssetItem>()
+        var totalPositive = 0.0
+        var totalNegative = 0.0
+
+        try {
+            val cursor = db.rawQuery(
+                "SELECT assetId, assetName, assetNumber, groupName, assetType FROM asset WHERE delete_lpcolumn = 0 AND hide = 0 ORDER BY positionWeight ASC",
+                null
+            )
+            val idIdx = cursor.getColumnIndex("assetId")
+            val nameIdx = cursor.getColumnIndex("assetName")
+            val numIdx = cursor.getColumnIndex("assetNumber")
+            val grpIdx = cursor.getColumnIndex("groupName")
+            val typeIdx = cursor.getColumnIndex("assetType")
+
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idIdx)
+                val name = cursor.getString(nameIdx) ?: "账户"
+                val balance = cursor.getDouble(numIdx)
+                val grp = cursor.getString(grpIdx) ?: ""
+                val type = cursor.getInt(typeIdx)
+
+                if (balance >= 0) {
+                    totalPositive += balance
+                } else {
+                    totalNegative += balance
+                }
+
+                accounts.add(
+                    AssetItem(
+                        id = id,
+                        name = name,
+                        balance = balance,
+                        groupName = grp,
+                        assetType = type
+                    )
+                )
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            db.close()
+        }
+
+        return AssetSummary(
+            totalAssets = totalPositive,
+            totalLiabilities = totalNegative,
+            netAssets = totalPositive + totalNegative,
+            accounts = accounts
+        )
+    }
+
+    /**
      * 分页查询账单明细
      */
-    fun getBills(limit: Int = 50, offset: Int = 0, yearMonth: String? = null): List<BillItem> {
+    fun getBills(limit: Int = 50, offset: Int = 0): List<BillItem> {
         val db = openDb()
         val parentCats = getParentCategories()
         val childCats = getChildCategories()
@@ -99,11 +162,10 @@ class YimuDbReader(private val dbFile: File) {
         val list = mutableListOf<BillItem>()
 
         try {
-            val whereClause = if (!yearMonth.isNullOrBlank()) "WHERE time LIKE '$yearMonth%'" else ""
             val query = """
                 SELECT id, cost, billType, time, remark, parentCategoryId, childCategoryId, assetId
                 FROM bill
-                $whereClause
+                WHERE delete_lpcolumn = 0
                 ORDER BY time DESC, id DESC
                 LIMIT $limit OFFSET $offset
             """.trimIndent()
@@ -113,7 +175,14 @@ class YimuDbReader(private val dbFile: File) {
                 val id = cursor.getLong(cursor.getColumnIndexOrThrow("id"))
                 val cost = cursor.getDouble(cursor.getColumnIndexOrThrow("cost"))
                 val billType = cursor.getInt(cursor.getColumnIndexOrThrow("billType"))
-                val time = cursor.getString(cursor.getColumnIndexOrThrow("time"))
+                val timeLong = cursor.getLong(cursor.getColumnIndexOrThrow("time"))
+                val timeStr = if (timeLong > 0) {
+                    try {
+                        dateFormat.format(Date(timeLong))
+                    } catch (e: Exception) {
+                        timeLong.toString()
+                    }
+                } else ""
                 val remark = cursor.getString(cursor.getColumnIndexOrThrow("remark"))
                 val parentId = cursor.getLong(cursor.getColumnIndexOrThrow("parentCategoryId"))
                 val childId = cursor.getLong(cursor.getColumnIndexOrThrow("childCategoryId"))
@@ -124,7 +193,7 @@ class YimuDbReader(private val dbFile: File) {
                         id = id,
                         cost = cost,
                         billType = billType,
-                        time = time ?: "",
+                        time = timeStr,
                         remark = remark,
                         parentCategoryId = parentId,
                         parentCategoryName = parentCats[parentId] ?: "默认",
@@ -145,19 +214,20 @@ class YimuDbReader(private val dbFile: File) {
     }
 
     /**
-     * 计算月份统计概要（总支出、总收入、结余、分类排名）
+     * 计算统计概要（总支出、总收入、结余、分类排名、资产概况）
      */
-    fun getMonthlySummary(yearMonth: String? = null): SpendingSummary {
+    fun getMonthlySummary(): SpendingSummary {
         val db = openDb()
         val parentCats = getParentCategories()
+        val assetSummary = getAssetSummary()
+
         var totalExpense = 0.0
         var totalIncome = 0.0
         var count = 0
         val categoryMap = mutableMapOf<String, Double>()
 
         try {
-            val whereClause = if (!yearMonth.isNullOrBlank()) "WHERE time LIKE '$yearMonth%'" else ""
-            val query = "SELECT cost, billType, parentCategoryId FROM bill $whereClause"
+            val query = "SELECT cost, billType, parentCategoryId FROM bill WHERE delete_lpcolumn = 0"
             val cursor = db.rawQuery(query, null)
             val costIdx = cursor.getColumnIndexOrThrow("cost")
             val typeIdx = cursor.getColumnIndexOrThrow("billType")
@@ -197,7 +267,8 @@ class YimuDbReader(private val dbFile: File) {
             totalIncome = totalIncome,
             balance = totalIncome - totalExpense,
             billCount = count,
-            categoryRanking = rankings
+            categoryRanking = rankings,
+            assetSummary = assetSummary
         )
     }
 

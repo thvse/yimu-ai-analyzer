@@ -18,12 +18,29 @@ object PromptEngine {
         if (summary != null) {
             sb.appendLine("- 总支出：¥%.2f".format(summary.totalExpense))
             sb.appendLine("- 总收入：¥%.2f".format(summary.totalIncome))
-            sb.appendLine("- 账面结余：¥%.2f".format(summary.balance))
-            sb.appendLine("- 累计记账笔数：%d 笔".format(summary.billCount))
-            sb.appendLine()
-            sb.appendLine("### 各项分类支出排行：")
-            summary.categoryRanking.take(8).forEachIndexed { index, cat ->
-                sb.appendLine("${index + 1}. ${cat.categoryName}：¥%.2f (占比 %.1f%%)".format(cat.amount, cat.percentage * 100))
+            sb.appendLine("- 账面收支结余：¥%.2f".format(summary.balance))
+            sb.appendLine("- 累计收支记账笔数：%d 笔".format(summary.billCount))
+
+            summary.assetSummary?.let { assets ->
+                sb.appendLine()
+                sb.appendLine("### 用户当前资产与负债结构（重点）：")
+                sb.appendLine("- 净资产：¥%.2f".format(assets.netAssets))
+                sb.appendLine("- 总资产（资金/投资）：¥%.2f".format(assets.totalAssets))
+                sb.appendLine("- 总负债（信贷/借款）：¥%.2f".format(assets.totalLiabilities))
+                sb.appendLine("各账户余额明细：")
+                assets.accounts.forEach { acc ->
+                    val typeStr = if (acc.isDebt) "负债" else "资产"
+                    val groupStr = if (acc.groupName.isNotBlank()) " [${acc.groupName}]" else ""
+                    sb.appendLine("  * ${acc.name}$groupStr: ¥%.2f ($typeStr)".format(acc.balance))
+                }
+            }
+
+            if (summary.categoryRanking.isNotEmpty()) {
+                sb.appendLine()
+                sb.appendLine("### 各项分类支出排行：")
+                summary.categoryRanking.take(8).forEachIndexed { index, cat ->
+                    sb.appendLine("${index + 1}. ${cat.categoryName}：¥%.2f (占比 %.1f%%)".format(cat.amount, cat.percentage * 100))
+                }
             }
         } else {
             sb.appendLine("（当前暂未加载账本数据，请引导用户先输入一木记账的用户ID完成解密）")
@@ -37,15 +54,17 @@ object PromptEngine {
                 val remarkStr = if (!b.remark.isNullOrBlank()) " (${b.remark})" else ""
                 sb.appendLine("- [${b.time}] $typeStr ¥%.2f | 分类: ${b.parentCategoryName}->${b.childCategoryName} | 账户: ${b.assetName}$remarkStr".format(b.cost))
             }
+        } else if (summary != null && summary.billCount == 0) {
+            sb.appendLine()
+            sb.appendLine("（注意：用户当前账本中尚未记录任何日常消费/收入流水，但已配置了资产账户与余额。你可以重点为用户分析资产负债比率、债务优化还款策略或资金流动性）")
         }
 
         sb.appendLine()
         sb.appendLine("### 你的分析与回复原则：")
-        sb.appendLine("1. 严格基于上述真实的账本数据回答用户的提问，当用户询问开销、比例、习惯时给出具体数字。")
-        sb.appendLine("2. 主动发现消费结构中的异常点（如餐饮占比过高、某项突发大额开销、恩格尔系数偏高）。")
-        sb.appendLine("3. 给出切实可行、不生硬的省钱与预算建议。")
-        sb.appendLine("4. 回答条理清晰，多使用清晰的 Markdown 列表和重点加粗。语言亲切自然。")
-        sb.appendLine("5. 若用户发送了账单截图、购物小票或发票图片，利用你的多模态视觉能力自动识别消费金额、商家和项目明细，并推荐一木记账适配的一级/二级分类及记账建议。")
+        sb.appendLine("1. 严格基于上述真实的账本数据回答用户的提问，当用户询问财务、负债、资产时给出具体真实数字。")
+        sb.appendLine("2. 资产负债健康度评估：结合正向资产与负债结构（如借呗、花呗、欠款），给出科学的负债偿还顺序与应急备用金建议。")
+        sb.appendLine("3. 回答条理清晰，多使用清晰的 Markdown 列表和重点加粗。语言亲切自然、充满鼓励。")
+        sb.appendLine("4. 若用户发送了账单截图、购物小票或发票图片，利用你的多模态视觉能力自动识别消费金额、商家和项目明细，并推荐一木记账适配的一级/二级分类及记账建议。")
 
         return sb.toString()
     }
