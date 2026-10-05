@@ -208,7 +208,7 @@ class YimuDbReader(private val dbFile: File) {
         val db = openDb()
         return try {
             val sql = "UPDATE bill SET parentCategoryId = ?, childCategoryId = ? WHERE id = ?"
-            db.execSQL(sql, arrayOf(parentCategoryId, childCategoryId, billId))
+            db.execSQL(sql, arrayOf<Any>(parentCategoryId, childCategoryId, billId))
             true
         } catch (e: Exception) {
             e.printStackTrace()

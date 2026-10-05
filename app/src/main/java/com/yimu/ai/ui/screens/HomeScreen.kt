@@ -195,7 +195,7 @@ private fun OverviewStatCard(
             )
 
             Spacer(modifier = Modifier.height(16.dp))
-            Divider(color = Color(0xFF334155))
+            HorizontalDivider(color = Color(0xFF334155))
             Spacer(modifier = Modifier.height(16.dp))
 
             Row(

@@ -39,9 +39,20 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
-      - name: Create Release (Optional Tag)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Create or Update GitHub Release
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v1.0.0
+          name: "一木AI账本助手 v1.0.0"
+          body: |
+            ### 📱 一木AI账本助手 (Yimu AI Analyzer)
+            - 🚀 原生 Android (Jetpack Compose + Material 3)
+            - 🔐 自动解密一木记账本地备份 `Custom.db`（同款 WinZip AES-256）
+            - 📊 账目统计透视、月度总览、分类支出榜单
+            - 🤖 DeepSeek / OpenAI 大模型上下文注入与智能财务体检
+            
+            **直接点击下方 Assets 中的 `app-debug.apk` 即可下载安装到手机。**
           files: app/build/outputs/apk/debug/app-debug.apk
-          generate_release_notes: true
+          draft: false
+          prerelease: false

@@ -114,7 +114,7 @@ fun ChatScreen(
                     }
                 }
 
-                Divider(color = BorderLight)
+                HorizontalDivider(color = BorderLight)
 
                 // 底部输入栏
                 Row(
