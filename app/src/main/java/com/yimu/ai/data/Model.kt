@@ -53,6 +53,12 @@ data class SpendingSummary(
     val backupFileModified: String = ""
 )
 
+data class CategoryExpense(
+    val categoryName: String,
+    val amount: Double,
+    val percentage: Float
+)
+
 data class ChatMessage(
     val id: String = java.util.UUID.randomUUID().toString(),
     val text: String,
