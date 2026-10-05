@@ -43,14 +43,13 @@ jobs:
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.4.0
-          name: "一木AI账本助手 v1.4.0 (支持手动挑选备份文件与多目录扫描)"
+          tag_name: v1.5.0
+          name: "一木AI账本助手 v1.5.0 (彻底修复字段大小写解析与转账支持)"
           body: |
-            ### 📱 一木AI账本助手 v1.4.0
-            - 📂 **支持系统文件选择器 (SAF)**：支持直接手动挑选手机中任何路径下的 .zip 备份包（Download、Documents、微信等），彻底解决因路径不一致读取旧备份的问题！
-            - 🔍 **多目录全盘扫描**：自动检索 Documents、Download 及根目录下一木记账的所有备份，智能选取最新修改的文件
-            - 🏷️ **清晰状态展示**：在主界面清晰展示当前正在读取的备份文件名及文件修改时间，账单笔数一目了然
-            - 🛡️ **安全缓存清理**：解密前彻底清空旧数据库临时文件与 WAL 缓存，杜绝数据残留与脏读
+            ### 📱 一木AI账本助手 v1.5.0 (重磅修复版)
+            - 🎯 **彻底解决字段解析问题**：修复 SQLite 字段名全小写导致的列名大小写匹配失败问题，账户名称、真实余额、收支流水、转账记录全面恢复正常显示！
+            - 💸 **转账记录完美支持**：同时合并读取 bill 流水与 transfer 转账表，完整呈现资金变动
+            - 📂 **支持系统文件选择器 (SAF)**：支持直接手动挑选手机中任意目录下的 .zip 备份包
             - 🔑 **签名保持完全一致**：使用内置 fixedSign 证书，支持直接覆盖更新！
           files: app/build/outputs/apk/debug/app-debug.apk
           draft: false

@@ -565,11 +565,13 @@ private fun BillRow(bill: BillItem) {
                 }
             }
 
+            val prefix = if (bill.isExpense) "-" else if (bill.isIncome) "+" else ""
+            val color = if (bill.isExpense) TextPrimary else if (bill.isIncome) IncomeGreen else Color(0xFF2563EB)
             Text(
-                text = (if (bill.isExpense) "-" else "+") + "¥%.2f".format(bill.cost),
+                text = prefix + "¥%.2f".format(bill.cost),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (bill.isExpense) TextPrimary else IncomeGreen
+                color = color
             )
         }
     }
